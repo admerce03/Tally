@@ -84,7 +84,7 @@ export async function mutate(command: Command): Promise<CommandOutput | null> {
 /**
  * Reactive query. `source` runs inside an effect (so reactive reads are tracked) and returns a
  * loader thunk, or null to skip. Re-runs when tracked state or `app.rev` changes. Stale
- * responses are dropped. The previous value stays visible while reloading.
+ * responses are dropped. The previous value stays visible while reloading, but is cleared if the reload fails.
  */
 export function query<T>(source: () => (() => Promise<T>) | null) {
   let value = $state<T | null>(null);
@@ -110,7 +110,11 @@ export function query<T>(source: () => (() => Promise<T>) | null) {
         }
       })
       .catch((e) => {
-        if (mine === token) error = errMsg(e);
+        if (mine === token) {
+          // Never keep data from a previous scenario/real-data fetch under a new error.
+          value = null;
+          error = errMsg(e);
+        }
       })
       .finally(() => {
         if (mine === token) loading = false;

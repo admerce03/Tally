@@ -106,7 +106,10 @@
                   renameText = selected.name;
                 }}>Rename</button
               >
-              <ConfirmButton label="Delete" onconfirm={() => mutate({ command: "delete_scenario", id: selected.id })} />
+              <ConfirmButton label="Delete" onconfirm={async () => {
+                  const id = selected.id;
+                  if (await mutate({ command: "delete_scenario", id }) && app.scenarioId === id) app.scenarioId = null;
+                }} />
             </div>
           {/if}
         </div>

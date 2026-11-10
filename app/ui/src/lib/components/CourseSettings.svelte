@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { mutate, toast } from "../app.svelte";
+  import { app, mutate, toast } from "../app.svelte";
   import { GPA_STATUSES, GPA_STATUS_LABEL, LETTERS, parseNum, parseOptNum } from "../format";
   import type { CourseView, GpaStatus, Letter } from "../generated/output";
+  import type { Override } from "../generated/command";
   import Drawer from "./Drawer.svelte";
 
   let { course, onclose }: { course: CourseView; onclose: () => void } = $props();
@@ -25,8 +26,22 @@
     return hit ? String(hit.min) : "";
   }
 
+  const inScenario = $derived(!!app.scenarioId);
+  const HINT = "Not available in a scenario; switch to Real data to edit.";
+
+  /** In scenario mode only curve / GPA status / official letter can be overridden. */
+  async function override(o: Override): Promise<void> {
+    if (!app.scenarioId) return;
+    await mutate({ command: "add_override", scenario_id: app.scenarioId, override: o });
+  }
+
   async function saveGeneral(e: Event) {
     e.preventDefault();
+    if (app.scenarioId) {
+      await override({ type: "set_gpa_status", course_id: course.id, gpa_status: f.gpaStatus });
+      await override({ type: "set_official_letter", course_id: course.id, letter: f.official || null });
+      return;
+    }
     const credits = parseNum(f.credits);
     const target = parseOptNum(f.target);
     if (!f.name.trim()) return toast("Name is required");
@@ -49,10 +64,19 @@
     const add = parseNum(f.addPoints);
     const shift = parseNum(f.shift);
     if (add === undefined || shift === undefined) return toast("Curve values must be numbers");
+    if (app.scenarioId) {
+      await override({
+        type: "set_course_curve",
+        course_id: course.id,
+        curve: { add_points: add, cutoff_shift: shift },
+      });
+      return;
+    }
     await mutate({ command: "set_course_curve", course_id: course.id, add_points: add, cutoff_shift: shift });
   }
 
   async function saveCutoff(letter: Letter, text: string) {
+    if (app.scenarioId) return;
     const v = parseOptNum(text);
     if (v === undefined) return toast(`Cutoff for ${letter} must be a number`);
     await mutate({ command: "set_cutoff", course_id: course.id, letter, value: v });
@@ -62,22 +86,23 @@
 <Drawer title="Course settings" {onclose}>
   <form class="stack tight" onsubmit={saveGeneral}>
     <h3>General</h3>
+    {#if inScenario}<p class="muted small">{HINT} GPA status and official letter apply to this scenario only.</p>{/if}
     <label class="field">
       <span>Name</span>
-      <input bind:value={f.name} />
+      <input bind:value={f.name} disabled={inScenario} title={inScenario ? HINT : undefined} />
     </label>
     <div class="cluster">
       <label class="field grow">
         <span>Code</span>
-        <input bind:value={f.code} placeholder="optional" />
+        <input bind:value={f.code} placeholder="optional" disabled={inScenario} title={inScenario ? HINT : undefined} />
       </label>
       <label class="field">
         <span>Credits</span>
-        <input class="narrow" bind:value={f.credits} inputmode="decimal" />
+        <input class="narrow" bind:value={f.credits} inputmode="decimal" disabled={inScenario} title={inScenario ? HINT : undefined} />
       </label>
       <label class="field">
         <span>Target (%)</span>
-        <input class="narrow" bind:value={f.target} inputmode="decimal" placeholder="none" />
+        <input class="narrow" bind:value={f.target} inputmode="decimal" placeholder="none" disabled={inScenario} title={inScenario ? HINT : undefined} />
       </label>
     </div>
     <div class="cluster">
@@ -129,6 +154,8 @@
             class="narrow"
             inputmode="decimal"
             value={cutoffText(l)}
+            disabled={inScenario}
+            title={inScenario ? HINT : undefined}
             onchange={(e) => saveCutoff(l, e.currentTarget.value)}
           />
         </label>
