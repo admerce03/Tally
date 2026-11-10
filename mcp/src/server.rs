@@ -60,10 +60,15 @@ impl fmt::Display for CallError {
     }
 }
 
+/// Called under the store lock after a successful mutating command (used by the sync server
+/// to register the new local ops).
+pub type AfterMutation = Arc<dyn Fn(&mut Store) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct TallyServer {
     store: Arc<Mutex<Store>>,
     tools: Arc<Vec<Tool>>,
+    after_mutation: Option<AfterMutation>,
 }
 
 fn error_result(message: impl Into<String>) -> CallToolResult {
@@ -72,9 +77,19 @@ fn error_result(message: impl Into<String>) -> CallToolResult {
 
 impl TallyServer {
     pub fn new(store: Store) -> Result<Self> {
+        Self::with_shared(Arc::new(Mutex::new(store)), None)
+    }
+
+    /// Serve an already shared store. `after_mutation` runs under the store lock after every
+    /// successful mutating command.
+    pub fn with_shared(
+        store: Arc<Mutex<Store>>,
+        after_mutation: Option<AfterMutation>,
+    ) -> Result<Self> {
         Ok(Self {
-            store: Arc::new(Mutex::new(store)),
+            store,
             tools: Arc::new(build_tools()?),
+            after_mutation,
         })
     }
 
@@ -102,7 +117,12 @@ impl TallyServer {
         };
         let result: Result<CommandOutput, CallError> = {
             let mut store = self.store.lock().unwrap_or_else(|p| p.into_inner());
-            store.transact(now_ms(), |tx| Ok(tx.execute(command)?))
+            let mutation = command.is_mutation();
+            let out = store.transact(now_ms(), |tx| Ok(tx.execute(command)?));
+            if let (true, Ok(_), Some(hook)) = (mutation, &out, &self.after_mutation) {
+                hook(&mut store);
+            }
+            out
         };
         match result {
             Ok(out) => match serde_json::to_value(&out) {

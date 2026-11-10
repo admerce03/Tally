@@ -6,4 +6,4 @@
 pub mod server;
 pub mod tools;
 
-pub use server::TallyServer;
+pub use server::{AfterMutation, TallyServer};

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core", "store", "cli", "mcp", "app/src-tauri"]
+members = ["core", "store", "cli", "mcp", "sync", "server", "app/src-tauri"]
 
 [workspace.package]
 edition = "2024"

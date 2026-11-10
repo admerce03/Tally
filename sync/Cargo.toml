@@ -1,0 +1,23 @@
+[package]
+name = "tally-sync"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "tally_sync"
+
+[features]
+default = ["client"]
+# HTTP client (`SyncClient`). The server depends on this crate without it.
+client = ["dep:ureq"]
+
+[dependencies]
+dirs = "6"
+serde.workspace = true
+serde_json.workspace = true
+tally-core = { path = "../core" }
+tally-store = { path = "../store" }
+thiserror.workspace = true
+ureq = { version = "3", features = ["json"], optional = true }
+
