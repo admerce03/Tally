@@ -5,6 +5,7 @@
 
 use uuid::Uuid;
 
+use crate::command::EntityKind;
 use crate::error::CoreError;
 use crate::ids::{AssignmentId, CategoryId, CourseId, ScenarioId, TermId};
 use crate::model::{Course, Gradebook, Override};
@@ -183,6 +184,62 @@ pub fn resolve_scenario(gb: &Gradebook, reference: &str) -> Result<ScenarioId, C
         .map(|s| Candidate::new(s.id.0, &s.name, None))
         .collect();
     resolve("scenario", reference, &cands).map(ScenarioId)
+}
+
+/// Resolve a reference of any kind to its id and display name. Categories need `course`;
+/// assignments are narrowed by `course` and, with `scenario`, include hypothetical ones.
+pub fn resolve_entity(
+    gb: &Gradebook,
+    kind: EntityKind,
+    reference: &str,
+    course: Option<CourseId>,
+    scenario: Option<ScenarioId>,
+) -> Result<(Uuid, String), CoreError> {
+    match kind {
+        EntityKind::Term => {
+            let id = resolve_term(gb, reference)?;
+            let name = gb.term(id).map(|t| t.name.clone()).unwrap_or_default();
+            Ok((id.0, name))
+        }
+        EntityKind::Course => {
+            let id = resolve_course(gb, reference)?;
+            let name = gb.course(id).map(|c| c.name.clone()).unwrap_or_default();
+            Ok((id.0, name))
+        }
+        EntityKind::Category => {
+            let course = course.ok_or(CoreError::MissingContext {
+                kind: "category",
+                needs: "a course",
+            })?;
+            let id = resolve_category(gb, course, reference)?;
+            let name = gb.category(id).map(|c| c.name.clone()).unwrap_or_default();
+            Ok((id.0, name))
+        }
+        EntityKind::Assignment => {
+            let id = resolve_assignment(gb, course, scenario, reference)?;
+            let real = gb.assignment(id).map(|a| a.name.clone());
+            let name = real.or_else(|| {
+                let sc = scenario.and_then(|s| crate::scenario::find_scenario(gb, s).ok())?;
+                sc.overrides.iter().find_map(|o| match o {
+                    Override::AddAssignment { assignment, .. } if assignment.id == id => {
+                        Some(assignment.name.clone())
+                    }
+                    _ => None,
+                })
+            });
+            Ok((id.0, name.unwrap_or_default()))
+        }
+        EntityKind::Scenario => {
+            let id = resolve_scenario(gb, reference)?;
+            let name = gb
+                .scenarios
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| s.name.clone())
+                .unwrap_or_default();
+            Ok((id.0, name))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -399,5 +456,58 @@ mod tests {
             resolve_assignment(&g, None, Some(ScenarioId(Uuid::from_u128(5))), "essay"),
             Err(CoreError::UnknownScenario(_))
         ));
+    }
+
+    #[test]
+    fn resolve_entity_returns_id_and_name_for_every_kind() {
+        let g = gb();
+        let c1 = CourseId(id(0xcccc1));
+        let r = |k, s: &str, c, sc| resolve_entity(&g, k, s, c, sc);
+        assert_eq!(
+            r(EntityKind::Term, "spring 2027", None, None),
+            Ok((id(0xeeee2), "Spring 2027".to_string()))
+        );
+        assert_eq!(
+            r(EntityKind::Course, "math101", None, None),
+            Ok((id(0xcccc1), "Calculus".to_string()))
+        );
+        assert_eq!(
+            r(EntityKind::Category, "homework", Some(c1), None),
+            Ok((id(0xbbbb1), "Homework".to_string()))
+        );
+        assert_eq!(
+            r(EntityKind::Assignment, "essay", None, None),
+            Ok((id(0xdddd1), "Essay".to_string()))
+        );
+        assert_eq!(
+            r(EntityKind::Scenario, "best case", None, None),
+            Ok((id(0xffff1), "Best case".to_string()))
+        );
+    }
+
+    #[test]
+    fn resolve_entity_errors_and_hypothetical_names() {
+        let mut g = gb();
+        assert!(matches!(
+            resolve_entity(&g, EntityKind::Category, "homework", None, None),
+            Err(CoreError::MissingContext { .. })
+        ));
+        assert!(matches!(
+            resolve_entity(&g, EntityKind::Assignment, "quiz 1", None, None),
+            Err(CoreError::AmbiguousRef { .. })
+        ));
+        assert!(matches!(
+            resolve_entity(&g, EntityKind::Course, "nope", None, None),
+            Err(CoreError::UnknownRef { .. })
+        ));
+        g.scenarios[0].overrides.push(Override::AddAssignment {
+            category_id: CategoryId(id(0xbbbb1)),
+            assignment: Assignment::new(AssignmentId(id(0x9999a)), "Bonus project", 20.0),
+        });
+        let sid = g.scenarios[0].id;
+        assert_eq!(
+            resolve_entity(&g, EntityKind::Assignment, "bonus project", None, Some(sid)),
+            Ok((id(0x9999a), "Bonus project".to_string()))
+        );
     }
 }

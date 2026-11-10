@@ -85,6 +85,7 @@ impl Term {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GpaStatus {
     #[default]
@@ -157,6 +158,7 @@ impl Category {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AssignmentStatus {
     #[default]
@@ -169,6 +171,7 @@ pub enum AssignmentStatus {
 
 /// A curve is an assumption layered on the stored score; it never mutates it.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AssignmentCurve {
     /// Add N points to the score.
@@ -180,6 +183,7 @@ pub enum AssignmentCurve {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Assignment {
     pub id: AssignmentId,
     pub name: String,
@@ -209,6 +213,7 @@ impl Assignment {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CourseCurve {
     /// Added to the final percent.
     #[serde(default)]
@@ -219,6 +224,7 @@ pub struct CourseCurve {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CurveMode {
     #[default]
@@ -227,6 +233,7 @@ pub enum CurveMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Letter {
     #[serde(rename = "A+")]
     APlus,
@@ -299,6 +306,7 @@ impl std::str::FromStr for Letter {
 
 /// Minimum percent for each letter. Letters without an entry are never awarded (F is the fallback).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LetterCutoffs {
     pub entries: Vec<(Letter, f64)>,
 }
@@ -341,6 +349,7 @@ impl Default for LetterCutoffs {
 
 /// Letter to grade points (editable).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GpaScale {
     pub points: Vec<(Letter, f64)>,
 }
@@ -392,6 +401,7 @@ pub struct Scenario {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Override {
     SetScore {

@@ -51,6 +51,22 @@ pub enum Top {
     Trends(AnalysisArgs),
     /// Final-grade change per 10% scored on each remaining assignment.
     Leverage(LeverageArgs),
+    /// Resolve a name, code or UUID (prefix) to an id.
+    Resolve(ResolveArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ResolveArgs {
+    /// term, course, category, assignment or scenario.
+    pub kind: tally_core::EntityKind,
+    /// Name, code, UUID or unique UUID prefix.
+    pub reference: String,
+    /// Course to search in (required for category; narrows assignment).
+    #[arg(long)]
+    pub course: Option<String>,
+    /// Also search this scenario's hypothetical assignments.
+    #[arg(long)]
+    pub scenario: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]

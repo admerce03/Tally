@@ -104,6 +104,11 @@ pub fn render(out: &CommandOutput) -> String {
         CommandOutput::Created { kind, id: new_id } => {
             format!("added {} {}", kind.as_str(), id(*new_id))
         }
+        CommandOutput::Resolved {
+            kind,
+            id: found,
+            name,
+        } => format!("{} {} ({name})", kind.as_str(), found),
         CommandOutput::Terms { terms } => {
             if terms.is_empty() {
                 return "no terms".to_string();

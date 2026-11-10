@@ -12,7 +12,6 @@ path = "src/main.rs"
 anyhow = "1"
 chrono.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
-dirs = "6"
 serde_json.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 tally-core = { path = "../core" }

@@ -1,7 +1,7 @@
 //! SQLite persistence for the whole `Gradebook` (milestone 1: one JSON row, no sync yet).
 
 use std::cmp::Ordering;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -19,6 +19,51 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
     #[error("database schema version {found} is newer than supported ({SCHEMA_VERSION})")]
     UnsupportedSchema { found: i64 },
+    #[error("could not determine the data directory; pass --db <PATH> or set TALLY_DB")]
+    NoDataDir,
+    #[error("could not create {}: {source}", path.display())]
+    CreateDir {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+}
+
+/// Environment variable that overrides the default database location.
+pub const DB_ENV: &str = "TALLY_DB";
+
+/// `<data dir>/Tally/tally.db` (for example under `%APPDATA%` on Windows). Pure: creates nothing.
+pub fn default_db_path() -> Result<PathBuf, StoreError> {
+    Ok(dirs::data_dir()
+        .ok_or(StoreError::NoDataDir)?
+        .join("Tally")
+        .join("tally.db"))
+}
+
+/// Pick the database path: `explicit` (e.g. `--db`), else `TALLY_DB` (when non-empty), else the
+/// default. An explicit or env path is used as given (the user owns that location); only the
+/// parent directory of the default path is created on demand.
+pub fn resolve_db_path(explicit: Option<PathBuf>) -> Result<PathBuf, StoreError> {
+    resolve_db_path_with(explicit, std::env::var_os(DB_ENV).map(PathBuf::from))
+}
+
+fn resolve_db_path_with(
+    explicit: Option<PathBuf>,
+    env: Option<PathBuf>,
+) -> Result<PathBuf, StoreError> {
+    if let Some(p) = explicit {
+        return Ok(p);
+    }
+    if let Some(p) = env.filter(|p| !p.as_os_str().is_empty()) {
+        return Ok(p);
+    }
+    let path = default_db_path()?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|source| StoreError::CreateDir {
+            path: dir.to_path_buf(),
+            source,
+        })?;
+    }
+    Ok(path)
 }
 
 pub struct Store {
@@ -128,6 +173,23 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
     use tally_core::{Command, TermId, execute};
+
+    #[test]
+    fn db_path_precedence_explicit_then_env() {
+        let explicit = PathBuf::from("explicit.db");
+        let env = PathBuf::from("env.db");
+        assert_eq!(
+            resolve_db_path_with(Some(explicit.clone()), Some(env.clone())).unwrap(),
+            explicit
+        );
+        assert_eq!(resolve_db_path_with(None, Some(env.clone())).unwrap(), env);
+    }
+
+    #[test]
+    fn default_db_path_ends_with_tally_dir_and_file() {
+        let p = default_db_path().unwrap();
+        assert!(p.ends_with(Path::new("Tally").join("tally.db")));
+    }
 
     fn sample(name: &str) -> Gradebook {
         let mut gb = Gradebook::default();

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core", "store", "cli"]
+members = ["core", "store", "cli", "mcp"]
 
 [workspace.package]
 edition = "2024"
