@@ -1,0 +1,1487 @@
+{
+  "$defs": {
+    "Assignment": {
+      "properties": {
+        "curves": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssignmentCurve"
+          },
+          "type": "array"
+        },
+        "due": {
+          "default": null,
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "points_possible": {
+          "format": "double",
+          "type": "number"
+        },
+        "score": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/AssignmentStatus",
+          "default": "pending"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "points_possible"
+      ],
+      "type": "object"
+    },
+    "AssignmentCurve": {
+      "description": "A curve is an assumption layered on the stored score; it never mutates it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Add N points to the score.",
+          "properties": {
+            "add_points": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "add_points"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Scale so `top_score` becomes full marks: score * possible / top_score.",
+          "properties": {
+            "scale_top_to": {
+              "properties": {
+                "top_score": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "top_score"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "scale_top_to"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Change the points possible to `new_max` (score unchanged).",
+          "properties": {
+            "set_max": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "set_max"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AssignmentStatus": {
+      "enum": [
+        "pending",
+        "submitted",
+        "graded",
+        "missing",
+        "excused"
+      ],
+      "type": "string"
+    },
+    "CourseCurve": {
+      "properties": {
+        "add_points": {
+          "default": 0.0,
+          "description": "Added to the final percent.",
+          "format": "double",
+          "type": "number"
+        },
+        "cutoff_shift": {
+          "default": 0.0,
+          "description": "Subtracted from every letter cutoff.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "CurveMode": {
+      "enum": [
+        "apply",
+        "ignore"
+      ],
+      "type": "string"
+    },
+    "EntityKind": {
+      "description": "What an Add* command created.",
+      "enum": [
+        "term",
+        "course",
+        "category",
+        "assignment",
+        "scenario"
+      ],
+      "type": "string"
+    },
+    "GpaScale": {
+      "description": "Letter to grade points (editable).",
+      "properties": {
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/Letter"
+              },
+              {
+                "format": "double",
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "points"
+      ],
+      "type": "object"
+    },
+    "GpaStatus": {
+      "enum": [
+        "normal",
+        "pass_fail",
+        "withdrawn",
+        "retaken"
+      ],
+      "type": "string"
+    },
+    "Letter": {
+      "enum": [
+        "A+",
+        "A",
+        "A-",
+        "B+",
+        "B",
+        "B-",
+        "C+",
+        "C",
+        "C-",
+        "D+",
+        "D",
+        "F"
+      ],
+      "type": "string"
+    },
+    "LetterCutoffs": {
+      "description": "Minimum percent for each letter. Letters without an entry are never awarded (F is the fallback).",
+      "properties": {
+        "entries": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/Letter"
+              },
+              {
+                "format": "double",
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "type": "object"
+    },
+    "LockedScore": {
+      "description": "A locked expected score: the assignment is assumed to earn `points` raw points (not a percent).",
+      "properties": {
+        "assignment_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "points": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "assignment_id",
+        "points"
+      ],
+      "type": "object"
+    },
+    "Override": {
+      "oneOf": [
+        {
+          "properties": {
+            "assignment_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "score": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "set_score",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "assignment_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "assignment_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/AssignmentStatus"
+            },
+            "type": {
+              "const": "set_status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "assignment_id",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "assignment": {
+              "$ref": "#/$defs/Assignment"
+            },
+            "category_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "add_assignment",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "category_id",
+            "assignment"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "assignment_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "curves": {
+              "items": {
+                "$ref": "#/$defs/AssignmentCurve"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "set_assignment_curves",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "assignment_id",
+            "curves"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "course_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "curve": {
+              "$ref": "#/$defs/CourseCurve"
+            },
+            "type": {
+              "const": "set_course_curve",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "course_id",
+            "curve"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "course_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "gpa_status": {
+              "$ref": "#/$defs/GpaStatus"
+            },
+            "type": {
+              "const": "set_gpa_status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "course_id",
+            "gpa_status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "course_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "letter": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Letter"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "type": {
+              "const": "set_official_letter",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "course_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TargetSpec": {
+      "description": "A target grade: `{\"percent\": 90}` (0-100) or `{\"letter\": \"A-\"}` (uses the course cutoff).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "percent": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "percent"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "letter": {
+              "$ref": "#/$defs/Letter"
+            }
+          },
+          "required": [
+            "letter"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "description": "Create a term (semester/quarter). `id` is a new UUID chosen by the caller. Returns the created id.",
+      "properties": {
+        "command": {
+          "const": "add_term",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Rename a term.",
+      "properties": {
+        "command": {
+          "const": "rename_term",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Delete a term with all its courses, categories and assignments.",
+      "properties": {
+        "command": {
+          "const": "remove_term",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Add a course to a term. `credits` is credit hours; `target` is the goal final grade as a percent (0-100). Returns the created id.",
+      "properties": {
+        "code": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "command": {
+          "const": "add_course",
+          "type": "string"
+        },
+        "credits": {
+          "format": "double",
+          "type": "number"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "target": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "term_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "term_id",
+        "id",
+        "name",
+        "credits"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Partially update a course. Omitted fields are unchanged; `code`, `target` and `official_letter` accept `null` to clear. `gpa_status` is normal, pass_fail, withdrawn or retaken (only normal counts toward GPA).",
+      "properties": {
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "command": {
+          "const": "update_course",
+          "type": "string"
+        },
+        "credits": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gpa_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GpaStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "official_letter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Letter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Delete a course with its categories and assignments.",
+      "properties": {
+        "command": {
+          "const": "remove_course",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Add a grading category (e.g. Homework) to a course. `weight` is the relative weight (any positive scale, e.g. 30 for 30%); `drop_lowest` drops the N lowest graded assignments. Returns the created id.",
+      "properties": {
+        "command": {
+          "const": "add_category",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "drop_lowest": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "weight": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "command",
+        "course_id",
+        "id",
+        "name",
+        "weight"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Partially update a category; omitted fields are unchanged.",
+      "properties": {
+        "command": {
+          "const": "update_category",
+          "type": "string"
+        },
+        "drop_lowest": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "weight": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Delete a category with its assignments.",
+      "properties": {
+        "command": {
+          "const": "remove_category",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Add an assignment to a category. Points are raw points (not percents); `score` is raw points earned (omit if not graded yet); `due` is YYYY-MM-DD; `status` defaults to pending; `curves` are optional assignment curves (assumptions, scores stay unchanged). Returns the created id.",
+      "properties": {
+        "category_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "command": {
+          "const": "add_assignment",
+          "type": "string"
+        },
+        "curves": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssignmentCurve"
+          },
+          "type": "array"
+        },
+        "due": {
+          "default": null,
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "points_possible": {
+          "format": "double",
+          "type": "number"
+        },
+        "score": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssignmentStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "command",
+        "category_id",
+        "id",
+        "name",
+        "points_possible"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Partially update an assignment. Omitted fields are unchanged; `score` and `due` accept `null` to clear; `curves` replaces the curve list. Scores are raw points.",
+      "properties": {
+        "command": {
+          "const": "update_assignment",
+          "type": "string"
+        },
+        "curves": {
+          "default": null,
+          "items": {
+            "$ref": "#/$defs/AssignmentCurve"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "due": {
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "points_possible": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "score": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssignmentStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "command",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Delete an assignment.",
+      "properties": {
+        "command": {
+          "const": "remove_assignment",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Partially update a course curve (an assumption, not data): `add_points` is added to the final percent, `cutoff_shift` lowers every letter cutoff. Omitted fields are unchanged; both 0 clears the curve.",
+      "properties": {
+        "add_points": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "command": {
+          "const": "set_course_curve",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "cutoff_shift": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "course_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Replace all letter cutoffs of a course (minimum percent 0-100 per letter).",
+      "properties": {
+        "command": {
+          "const": "set_cutoffs",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "cutoffs": {
+          "$ref": "#/$defs/LetterCutoffs"
+        }
+      },
+      "required": [
+        "command",
+        "course_id",
+        "cutoffs"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Set one letter cutoff (percent 0-100) of a course; `value: null` removes that letter.",
+      "properties": {
+        "command": {
+          "const": "set_cutoff",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "letter": {
+          "$ref": "#/$defs/Letter"
+        },
+        "value": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "course_id",
+        "letter"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "List all terms with their courses (ids, names, credits). Start here to discover ids; use show_course for categories and assignments.",
+      "properties": {
+        "command": {
+          "const": "list_terms",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Show one course in full: settings, curves, cutoffs, categories and assignments with their ids.",
+      "properties": {
+        "command": {
+          "const": "show_course",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "course_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Current grade (renormalized over categories with graded work) and projected grade (full weights, ungraded work as 0), as percents 0-100 with letters. Curves apply unless `curve_mode` is ignore.",
+      "properties": {
+        "command": {
+          "const": "course_grade",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "curve_mode": {
+          "$ref": "#/$defs/CurveMode",
+          "default": "apply"
+        },
+        "scenario_id": {
+          "default": null,
+          "description": "Evaluate against this what-if scenario instead of the real data.",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "course_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Running-grade change as each graded assignment was graded, in chronological order (percentage points).",
+      "properties": {
+        "command": {
+          "const": "impact",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "curve_mode": {
+          "$ref": "#/$defs/CurveMode",
+          "default": "apply"
+        },
+        "scenario_id": {
+          "default": null,
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "course_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Running course grade over time (percents 0-100), one point per date.",
+      "properties": {
+        "command": {
+          "const": "trends",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "curve_mode": {
+          "$ref": "#/$defs/CurveMode",
+          "default": "apply"
+        },
+        "scenario_id": {
+          "default": null,
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "course_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "For each remaining assignment, the final-grade change (percentage points) per 10% scored on it. `baseline` (percent 0-100) is what other remaining work is assumed to score.",
+      "properties": {
+        "baseline": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "command": {
+          "const": "leverage",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "curve_mode": {
+          "$ref": "#/$defs/CurveMode",
+          "default": "apply"
+        },
+        "scenario_id": {
+          "default": null,
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "course_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Set or clear (`null`) a course's target final grade, as a percent 0-100.",
+      "properties": {
+        "command": {
+          "const": "set_target",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "target": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "course_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Solve for the uniform percent (0-100 of points possible) needed on all remaining work to hit a target. Result is secured, on_track{needed} or unreachable. `target` is a percent or letter (omit to use the course target). `locked` fixes expected scores on specific assignments, in raw points. Ignores curves unless `with_curve`.",
+      "properties": {
+        "command": {
+          "const": "solve_target",
+          "type": "string"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "locked": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LockedScore"
+          },
+          "type": "array"
+        },
+        "scenario_id": {
+          "default": null,
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TargetSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "with_curve": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "command",
+        "course_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Create a named what-if scenario (hypothetical scores/curves overlaid on real data; real data is never changed). Returns the created id.",
+      "properties": {
+        "command": {
+          "const": "create_scenario",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Rename a what-if scenario.",
+      "properties": {
+        "command": {
+          "const": "rename_scenario",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Delete a what-if scenario.",
+      "properties": {
+        "command": {
+          "const": "delete_scenario",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Add a hypothetical change to a scenario (set score/status, add assignment, set curves, set course curve, GPA status, official letter). Scores are raw points.",
+      "properties": {
+        "command": {
+          "const": "add_override",
+          "type": "string"
+        },
+        "override": {
+          "$ref": "#/$defs/Override"
+        },
+        "scenario_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "scenario_id",
+        "override"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remove a scenario override by its zero-based index.",
+      "properties": {
+        "command": {
+          "const": "remove_override",
+          "type": "string"
+        },
+        "index": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scenario_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "scenario_id",
+        "index"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "List all what-if scenarios with their overrides.",
+      "properties": {
+        "command": {
+          "const": "list_scenarios",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Compare real data and the given scenarios side by side (course grades and GPA). Empty `scenario_ids` means all scenarios.",
+      "properties": {
+        "command": {
+          "const": "compare_scenarios",
+          "type": "string"
+        },
+        "scenario_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "GPA of one term on the GPA scale (4.0 default), with excluded courses and reasons.",
+      "properties": {
+        "command": {
+          "const": "term_gpa",
+          "type": "string"
+        },
+        "scenario_id": {
+          "default": null,
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "term_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "term_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Cumulative GPA across all terms (sum of points x credits / sum of credits), with excluded courses and reasons.",
+      "properties": {
+        "command": {
+          "const": "cumulative_gpa",
+          "type": "string"
+        },
+        "scenario_id": {
+          "default": null,
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Replace the whole GPA scale (letter to grade points).",
+      "properties": {
+        "command": {
+          "const": "set_gpa_scale",
+          "type": "string"
+        },
+        "scale": {
+          "$ref": "#/$defs/GpaScale"
+        }
+      },
+      "required": [
+        "command",
+        "scale"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Set the grade points of one letter on the GPA scale.",
+      "properties": {
+        "command": {
+          "const": "set_gpa_scale_entry",
+          "type": "string"
+        },
+        "letter": {
+          "$ref": "#/$defs/Letter"
+        },
+        "points": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "command",
+        "letter",
+        "points"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Show the GPA scale (letter to grade points).",
+      "properties": {
+        "command": {
+          "const": "show_gpa_scale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Resolve a name, code, UUID or unique UUID prefix to an id (read-only). `course` is required for `category` and narrows `assignment`; `scenario` also searches that scenario's hypothetical assignments. Ambiguous or unknown references are errors.",
+      "properties": {
+        "command": {
+          "const": "resolve",
+          "type": "string"
+        },
+        "course": {
+          "default": null,
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/EntityKind"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "scenario": {
+          "default": null,
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "kind",
+        "reference"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "Command"
+}

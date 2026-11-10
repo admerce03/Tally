@@ -6,6 +6,8 @@ pub mod error;
 pub mod gpa;
 pub mod grade;
 pub mod ids;
+#[cfg(feature = "schema")]
+pub mod json;
 pub mod model;
 pub mod refs;
 pub mod scenario;

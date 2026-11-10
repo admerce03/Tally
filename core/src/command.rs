@@ -393,6 +393,7 @@ impl Command {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CourseSummary {
     pub id: CourseId,
     pub name: String,
@@ -401,6 +402,7 @@ pub struct CourseSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TermSummary {
     pub id: TermId,
     pub name: String,
@@ -408,6 +410,7 @@ pub struct TermSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CourseGradeReport {
     pub course_id: CourseId,
     pub curve_mode: CurveMode,
@@ -465,6 +468,7 @@ fn created(kind: EntityKind, id: uuid::Uuid) -> CommandOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum CommandOutput {
     Done,

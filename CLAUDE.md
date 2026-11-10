@@ -13,7 +13,7 @@ cli/     `grades` CLI (clap); every subcommand supports --json
 server/  Axum sync server + MCP over HTTP (home server)
 ```
 
-Only create crates when their milestone starts. Do NOT scaffold `app/` or `server/` yet.
+Only create crates when their milestone starts. Do NOT scaffold `server/` yet.
 
 ## PARITY RULE (non-negotiable)
 
@@ -83,6 +83,23 @@ Create now: `mcp` crate (`tally-mcp` binary), stdio transport via `rmcp`.
 - **Descriptions:** each `Command` variant has a `///` doc comment; schemars carries it into the tool description, so docs live in core.
 - **Refs:** tools take UUIDs. Agents get ids from `Created` outputs, list/show queries, or the `resolve` tool (core `Command::Resolve { kind, reference, course, scenario }`, using the same resolution order as the CLI).
 - **Concurrency:** each tool call is one `Store::transact`; CLI and MCP can run against the same DB at once.
+
+## Current milestone: 3 — desktop app (Tauri 2, Windows + macOS)
+
+Create now: `app/` with `app/src-tauri` (crate `tally-app`, workspace member) and `app/ui` (frontend).
+
+- [ ] Backend: one generic Tauri command `execute(command) -> CommandOutput` over `Store::transact` (same path as MCP); DB path from `store::resolve_db_path`
+- [ ] TypeScript types for `Command` / `CommandOutput` generated from the core JSON schema (no hand-written drift)
+- [ ] Views: terms/courses sidebar; course page (current/projected/letter, categories + assignments with inline score editing, curves, cutoffs); target solver panel; what-if scenarios (toggle a scenario to view through it, compare side by side incl. GPA); analysis (impact, leverage, trend chart); GPA page (per term, cumulative, exclusions, scale editor)
+- [ ] Modern minimalist design, light + dark (prefers-color-scheme), keyboard friendly
+- [ ] Fresh clone: `cargo fmt/clippy/test --workspace` pass without running npm first
+- [ ] README: dev + build instructions for Windows and macOS
+
+### App design
+
+- **Parity:** the UI never computes grades. Every number shown comes from a `CommandOutput`. The UI only builds `Command` JSON (UUIDs via `crypto.randomUUID()`) and renders results.
+- **Frontend:** Svelte 5 + Vite + TypeScript, no UI kit; charts are hand-drawn SVG (no chart library). Tauri CLI comes from the `@tauri-apps/cli` npm dev dependency (no global install).
+- **Refresh:** after any mutation the UI re-queries what it shows; there is no client-side cache of grade math.
 
 ## Design decisions (milestone 1)
 
@@ -161,4 +178,4 @@ Do tiny edits (a few lines) directly instead of delegating. Keep replies brief: 
 
 ## Later milestones (do not build yet)
 
-3. Desktop app (Tauri 2, Windows + macOS). 4. Sync server + remote MCP on home server (Tailscale). Sync design: local SQLite per device, every Command appended to an op log (timestamp + device id), push/pull to server, last-write-wins per field. 5. iOS app; optional Canvas LMS import.
+4. Sync server + remote MCP on home server (Tailscale). Sync design: local SQLite per device, every Command appended to an op log (timestamp + device id), push/pull to server, last-write-wins per field. 5. iOS app; optional Canvas LMS import.

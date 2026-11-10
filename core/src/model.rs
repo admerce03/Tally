@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{AssignmentId, CategoryId, CourseId, ScenarioId, TermId};
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Gradebook {
     #[serde(default)]
     pub terms: Vec<Term>,
@@ -67,6 +68,7 @@ impl Gradebook {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Term {
     pub id: TermId,
     pub name: String,
@@ -96,6 +98,7 @@ pub enum GpaStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Course {
     pub id: CourseId,
     pub name: String,
@@ -135,6 +138,7 @@ impl Course {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Category {
     pub id: CategoryId,
     pub name: String,
@@ -393,6 +397,7 @@ impl Default for GpaScale {
 
 /// What-if scenario: named overlay of hypothetical changes (see `scenario::apply_scenario`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Scenario {
     pub id: ScenarioId,
     pub name: String,

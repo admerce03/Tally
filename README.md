@@ -75,3 +75,26 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+## Desktop app (Tauri 2)
+
+`app/src-tauri` (crate `tally-app`) is the Rust backend: one Tauri command, `execute`, that runs a core `Command` (JSON) through `Store::transact`, the same path as the MCP server, and returns the `CommandOutput`. `app/ui` is the Svelte 5 + Vite + TypeScript frontend. The database path is resolved like the CLI (`TALLY_DB`, else the user data dir).
+
+Prerequisites: Rust stable, Node 20+ with npm. Windows: WebView2 (preinstalled on Windows 11) and the MSVC build tools. macOS: Xcode Command Line Tools (`xcode-select --install`).
+
+```
+cd app/ui
+npm install
+npm run tauri dev       # runs Vite + the app with hot reload
+npm run tauri build     # release bundles (MSI/NSIS on Windows, .app/.dmg on macOS)
+```
+
+Other scripts in `app/ui`: `npm run check` (svelte-check), `npm run build` (frontend only), `npm run gen:types`.
+
+### TypeScript types
+
+`Command` and `CommandOutput` types are generated from the core JSON schema; never edit `app/ui/src/lib/generated/`. After changing core commands or outputs run `npm run gen:types` in `app/ui` and commit the result. A Rust test (`cargo test -p tally-app`) fails if the committed schemas are stale. The schema export is also available directly: `cargo run -p tally-core --features schema --example export_schema -- <out-dir>`.
+
+### Fresh clone
+
+`cargo fmt/clippy/test --workspace` work without running npm: `app/src-tauri/build.rs` creates a placeholder `app/ui/dist/index.html` if the directory is missing (Tauri needs `frontendDist` to exist at compile time). `npm run build` replaces it with the real UI; `dist/` is git-ignored.

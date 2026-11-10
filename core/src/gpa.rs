@@ -7,6 +7,7 @@ use crate::ids::{CourseId, TermId};
 use crate::model::{Course, CurveMode, GpaScale, GpaStatus, Gradebook, Letter, Term};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ExclusionReason {
     PassFail,
@@ -17,6 +18,7 @@ pub enum ExclusionReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CourseGpaEntry {
     pub course_id: CourseId,
     pub name: String,
@@ -28,6 +30,7 @@ pub struct CourseGpaEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TermGpaReport {
     pub term_id: TermId,
     pub name: String,
@@ -38,6 +41,7 @@ pub struct TermGpaReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CumulativeGpaReport {
     pub gpa: Option<f64>,
     pub credits: f64,
