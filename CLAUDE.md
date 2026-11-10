@@ -19,23 +19,23 @@ Only create crates when their milestone starts. Do NOT scaffold `app/`, `mcp/`, 
 
 **No feature exists in any UI unless it is a core `Command` first.** UI, CLI, and MCP are thin adapters over core Commands. Never put grade math or business logic in an adapter. If a person can do it, an LLM must be able to do it through the same Command.
 
-## Current milestone: 1 — core + cli
+## Current milestone: 1 — core + cli (complete)
 
 Create now: `core` (full), `store` (optional, minimal: SQLite persistence only, no sync yet), `cli`.
 
 Done means every item below is implemented, unit-tested, and exposed as a Command + `grades` subcommand with `--json`. Tick items here as you finish them.
 
-- [ ] Data model: Term -> Course (credits, letter cutoffs, curve settings, target) -> Category (weight, drop-lowest N) -> Assignment (points possible, score, due date, status, optional curve); serde derives
-- [ ] Current grade (renormalized over categories with graded work) and projected grade (full weights)
-- [ ] Drop-lowest N within categories
-- [ ] Target solver with locked expected scores; results Secured / OnTrack{needed} / Unreachable
-- [ ] Per-assignment curves (add N points; scale top score to 100%; set new max)
-- [ ] Per-course curves (add N points to final %; shift letter cutoffs); solver reports without curve by default, optionally with expected curve
-- [ ] What-if: named scenarios overlay hypothetical scores/curves, never mutate real data, comparable side by side (grade and GPA)
-- [ ] Analysis: impact (running-grade change per assignment, chronological), leverage (final-grade change per 10% scored on each remaining assignment), trends over time
-- [ ] GPA: per-term and cumulative, editable scale, exclusions
-- [ ] CLI covering all of the above; `--json` everywhere
-- [ ] Required edge-case tests (below)
+- [x] Data model: Term -> Course (credits, letter cutoffs, curve settings, target) -> Category (weight, drop-lowest N) -> Assignment (points possible, score, due date, status, optional curve); serde derives
+- [x] Current grade (renormalized over categories with graded work) and projected grade (full weights)
+- [x] Drop-lowest N within categories
+- [x] Target solver with locked expected scores; results Secured / OnTrack{needed} / Unreachable
+- [x] Per-assignment curves (add N points; scale top score to 100%; set new max)
+- [x] Per-course curves (add N points to final %; shift letter cutoffs); solver reports without curve by default, optionally with expected curve
+- [x] What-if: named scenarios overlay hypothetical scores/curves, never mutate real data, comparable side by side (grade and GPA)
+- [x] Analysis: impact (running-grade change per assignment, chronological), leverage (final-grade change per 10% scored on each remaining assignment), trends over time
+- [x] GPA: per-term and cumulative, editable scale, exclusions
+- [x] CLI covering all of the above; `--json` everywhere
+- [x] Required edge-case tests (below)
 
 Required edge-case tests:
 - No graded work at all; all categories empty
@@ -88,6 +88,11 @@ Cumulative = sum(points x credits) / sum(credits). Exclude pass/fail, withdrawal
 - **Impact:** walk graded assignments in that order. Before/after = current grade counting only the assignments graded so far (drops re-evaluated on that subset). delta = after - before; `None` when before is `None` (first graded work).
 - **Trends:** per course, the running current grade after each graded assignment, one point per distinct date (last value of the day); undated items fold into one final undated point.
 - **Leverage:** for each remaining assignment, fill all other remaining work with a baseline percent (default: current grade *before* the course add_points curve, clamped to 0-100, or 0 if no graded work; overridable), then leverage = (final with this one at 100% - final with it at 0%) / 10. Units: final-grade points per 10% scored. Sorted descending, ties in list order.
+- **Store (milestone 1):** one SQLite file holding the whole `Gradebook` as JSON in a single-row table plus a `schema_version`. `Store::open(path)`, `open_in_memory()`, `load() -> Gradebook` (default if empty), `save(&Gradebook)` in a transaction. Adapters use `Store::transact(|gb| ...)`, which runs load + execute + save inside one `BEGIN IMMEDIATE` (busy_timeout set) so concurrent processes don't lose updates. Normalized tables and the op log come with sync (milestone 4).
+- **CLI flow:** parse args -> build `Command` -> load -> `execute` -> save only if `Command::is_mutation()` -> render (`--json` prints the `CommandOutput` as JSON; errors print `{"error": ...}` and exit non-zero). DB path: `--db`, else `TALLY_DB`, else `dirs::data_dir()/Tally/tally.db`. The CLI generates UUIDs for adds.
+- **Refs:** entities are referenced by, in this order: full UUID, unique case-insensitive exact name (course: name or code), unique UUID prefix (>= 4 hex chars). Within a scenario context, hypothetical assignments are resolvable too.
+- **Adds return ids:** every Add* command returns `CommandOutput::Created { kind, id }` so agents can chain calls.
+- **Partial updates live in core:** adapters never read-modify-write. Curve, cutoff and GPA-scale edits are partial core Commands. Ref resolution lives in core (`resolve_*`), so MCP reuses it; ambiguous or unknown refs are `CoreError`s.
 - **Analysis curve mode** defaults to Apply (it describes the displayed grade), overridable.
 
 ## Conventions

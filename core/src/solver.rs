@@ -43,6 +43,30 @@ pub enum TargetSpec {
     Letter(Letter),
 }
 
+impl std::str::FromStr for TargetSpec {
+    type Err = CoreError;
+
+    /// A percent ("90", "90.5", "90%") or a letter ("A-", "b+", case-insensitive).
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let t = s.trim();
+        let bad = || CoreError::InvalidTarget(s.to_string());
+        let number = t.strip_suffix('%').unwrap_or(t).trim();
+        if let Ok(p) = number.parse::<f64>() {
+            return if p.is_finite() {
+                Ok(TargetSpec::Percent(p))
+            } else {
+                Err(bad())
+            };
+        }
+        if t.ends_with('%') {
+            return Err(bad());
+        }
+        t.parse::<Letter>()
+            .map(TargetSpec::Letter)
+            .map_err(|_| bad())
+    }
+}
+
 /// A locked expected score (raw points, before curves).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LockedScore {
@@ -178,6 +202,27 @@ mod tests {
             SolveStatus::OnTrack { needed } => needed,
             s => panic!("not on track: {s:?}"),
         }
+    }
+
+    #[test]
+    fn target_spec_from_str() {
+        let p = |s: &str| s.parse::<TargetSpec>();
+        assert_eq!(p("90"), Ok(TargetSpec::Percent(90.0)));
+        assert_eq!(p(" 90.5 "), Ok(TargetSpec::Percent(90.5)));
+        assert_eq!(p("90%"), Ok(TargetSpec::Percent(90.0)));
+        assert_eq!(p("A-"), Ok(TargetSpec::Letter(Letter::AMinus)));
+        assert_eq!(p("b+"), Ok(TargetSpec::Letter(Letter::BPlus)));
+        assert_eq!(p("f"), Ok(TargetSpec::Letter(Letter::F)));
+        for bad in ["", "x", "%", "A%", "nan", "inf", "E"] {
+            assert!(
+                matches!(p(bad), Err(CoreError::InvalidTarget(_))),
+                "{bad:?}"
+            );
+        }
+        assert!(matches!(
+            "G".parse::<Letter>(),
+            Err(CoreError::InvalidLetter(_))
+        ));
     }
 
     #[test]

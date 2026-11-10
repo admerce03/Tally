@@ -35,4 +35,19 @@ pub enum CoreError {
     LockedExcused(Uuid),
     #[error("course has no cutoff for letter {0}")]
     NoCutoff(&'static str),
+    #[error("invalid letter '{0}' (expected one of A+ A A- B+ B B- C+ C C- D+ D F)")]
+    InvalidLetter(String),
+    #[error("invalid target '{0}' (expected a percent like 90, 90.5, 90% or a letter like A-)")]
+    InvalidTarget(String),
+    #[error("unknown {kind} '{reference}'")]
+    UnknownRef {
+        kind: &'static str,
+        reference: String,
+    },
+    #[error("ambiguous {kind} '{reference}', matches: {}", .candidates.join(", "))]
+    AmbiguousRef {
+        kind: &'static str,
+        reference: String,
+        candidates: Vec<String>,
+    },
 }

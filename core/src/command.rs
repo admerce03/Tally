@@ -9,8 +9,8 @@ use crate::gpa::{CumulativeGpaReport, TermGpaReport};
 use crate::grade;
 use crate::ids::{AssignmentId, CategoryId, CourseId, ScenarioId, TermId};
 use crate::model::{
-    Assignment, AssignmentCurve, AssignmentStatus, Category, Course, CourseCurve, CurveMode,
-    GpaScale, GpaStatus, Gradebook, Letter, LetterCutoffs, Override, Scenario, Term,
+    Assignment, AssignmentCurve, AssignmentStatus, Category, Course, CurveMode, GpaScale,
+    GpaStatus, Gradebook, Letter, LetterCutoffs, Override, Scenario, Term,
 };
 use crate::scenario::{self, ScenarioColumn};
 use crate::solver::{self, LockedScore, SolveResult, TargetSpec};
@@ -139,13 +139,25 @@ pub enum Command {
     RemoveAssignment {
         id: AssignmentId,
     },
+    /// Partial update: fields left out (None) are unchanged. `Some(0.0)` for both clears the curve.
     SetCourseCurve {
         course_id: CourseId,
-        curve: CourseCurve,
+        #[serde(default)]
+        add_points: Option<f64>,
+        #[serde(default)]
+        cutoff_shift: Option<f64>,
     },
+    /// Replace all letter cutoffs of a course.
     SetCutoffs {
         course_id: CourseId,
         cutoffs: LetterCutoffs,
+    },
+    /// Set one letter cutoff; `value: None` removes it.
+    SetCutoff {
+        course_id: CourseId,
+        letter: Letter,
+        #[serde(default)]
+        value: Option<f64>,
     },
     ListTerms,
     ShowCourse {
@@ -236,9 +248,60 @@ pub enum Command {
         #[serde(default)]
         scenario_id: Option<ScenarioId>,
     },
+    /// Replace the whole GPA scale.
     SetGpaScale {
         scale: GpaScale,
     },
+    /// Set the grade points of one letter.
+    SetGpaScaleEntry {
+        letter: Letter,
+        points: f64,
+    },
+    ShowGpaScale,
+}
+
+impl Command {
+    /// True if executing this command may change the gradebook (adapters save only then).
+    /// Exhaustive on purpose: a new command must be classified here.
+    pub fn is_mutation(&self) -> bool {
+        match self {
+            Command::AddTerm { .. }
+            | Command::RenameTerm { .. }
+            | Command::RemoveTerm { .. }
+            | Command::AddCourse { .. }
+            | Command::UpdateCourse { .. }
+            | Command::RemoveCourse { .. }
+            | Command::AddCategory { .. }
+            | Command::UpdateCategory { .. }
+            | Command::RemoveCategory { .. }
+            | Command::AddAssignment { .. }
+            | Command::UpdateAssignment { .. }
+            | Command::RemoveAssignment { .. }
+            | Command::SetCourseCurve { .. }
+            | Command::SetCutoffs { .. }
+            | Command::SetCutoff { .. }
+            | Command::SetTarget { .. }
+            | Command::CreateScenario { .. }
+            | Command::RenameScenario { .. }
+            | Command::DeleteScenario { .. }
+            | Command::AddOverride { .. }
+            | Command::RemoveOverride { .. }
+            | Command::SetGpaScale { .. }
+            | Command::SetGpaScaleEntry { .. } => true,
+            Command::ListTerms
+            | Command::ShowCourse { .. }
+            | Command::CourseGrade { .. }
+            | Command::Impact { .. }
+            | Command::Trends { .. }
+            | Command::Leverage { .. }
+            | Command::SolveTarget { .. }
+            | Command::ListScenarios
+            | Command::CompareScenarios { .. }
+            | Command::TermGpa { .. }
+            | Command::CumulativeGpa { .. }
+            | Command::ShowGpaScale => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -268,21 +331,78 @@ pub struct CourseGradeReport {
     pub projected_letter: Option<Letter>,
 }
 
+/// What an Add* command created.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityKind {
+    Term,
+    Course,
+    Category,
+    Assignment,
+    Scenario,
+}
+
+impl EntityKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntityKind::Term => "term",
+            EntityKind::Course => "course",
+            EntityKind::Category => "category",
+            EntityKind::Assignment => "assignment",
+            EntityKind::Scenario => "scenario",
+        }
+    }
+}
+
+fn created(kind: EntityKind, id: uuid::Uuid) -> CommandOutput {
+    CommandOutput::Created { kind, id }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum CommandOutput {
     Done,
-    Terms { terms: Vec<TermSummary> },
-    Course { course: Box<Course> },
-    CourseGrade { report: CourseGradeReport },
-    Solve { solve: SolveResult },
-    Impact { entries: Vec<ImpactEntry> },
-    Trends { points: Vec<TrendPoint> },
-    Leverage { report: LeverageReport },
-    Scenarios { scenarios: Vec<Scenario> },
-    Comparison { columns: Vec<ScenarioColumn> },
-    TermGpa { report: TermGpaReport },
-    CumulativeGpa { report: CumulativeGpaReport },
+    /// Returned by every Add* command so callers can chain on the new id.
+    Created {
+        kind: EntityKind,
+        id: uuid::Uuid,
+    },
+    Terms {
+        terms: Vec<TermSummary>,
+    },
+    Course {
+        course: Box<Course>,
+    },
+    CourseGrade {
+        report: CourseGradeReport,
+    },
+    Solve {
+        solve: SolveResult,
+    },
+    Impact {
+        entries: Vec<ImpactEntry>,
+    },
+    Trends {
+        points: Vec<TrendPoint>,
+    },
+    Leverage {
+        report: LeverageReport,
+    },
+    Scenarios {
+        scenarios: Vec<Scenario>,
+    },
+    Comparison {
+        columns: Vec<ScenarioColumn>,
+    },
+    TermGpa {
+        report: TermGpaReport,
+    },
+    CumulativeGpa {
+        report: CumulativeGpaReport,
+    },
+    GpaScale {
+        scale: GpaScale,
+    },
 }
 
 pub(crate) fn finite(field: &'static str, v: f64) -> Result<(), CoreError> {
@@ -361,7 +481,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                 return Err(dup("term", id.0));
             }
             gb.terms.push(Term::new(id, name));
-            Ok(CommandOutput::Done)
+            Ok(created(EntityKind::Term, id.0))
         }
         Command::RenameTerm { id, name } => {
             gb.term_mut(id).ok_or(CoreError::UnknownTerm(id.0))?.name = name;
@@ -400,7 +520,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             course.code = code;
             course.target = target;
             term.courses.push(course);
-            Ok(CommandOutput::Done)
+            Ok(created(EntityKind::Course, id.0))
         }
         Command::UpdateCourse {
             id,
@@ -465,7 +585,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             let mut cat = Category::new(id, name, w);
             cat.drop_lowest = drop_lowest;
             course.categories.push(cat);
-            Ok(CommandOutput::Done)
+            Ok(created(EntityKind::Category, id.0))
         }
         Command::UpdateCategory {
             id,
@@ -531,7 +651,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             a.status = status.unwrap_or_default();
             a.curves = cv;
             cat.assignments.push(a);
-            Ok(CommandOutput::Done)
+            Ok(created(EntityKind::Assignment, id.0))
         }
         Command::UpdateAssignment {
             id,
@@ -589,12 +709,27 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             scenario::prune_overrides(&mut gb.scenarios, &removed);
             Ok(CommandOutput::Done)
         }
-        Command::SetCourseCurve { course_id, curve } => {
-            finite("add_points", curve.add_points)?;
-            finite("cutoff_shift", curve.cutoff_shift)?;
-            gb.course_mut(course_id)
+        Command::SetCourseCurve {
+            course_id,
+            add_points,
+            cutoff_shift,
+        } => {
+            if let Some(v) = add_points {
+                finite("add_points", v)?;
+            }
+            if let Some(v) = cutoff_shift {
+                finite("cutoff_shift", v)?;
+            }
+            let curve = &mut gb
+                .course_mut(course_id)
                 .ok_or(CoreError::UnknownCourse(course_id.0))?
-                .curve = curve;
+                .curve;
+            if let Some(v) = add_points {
+                curve.add_points = v;
+            }
+            if let Some(v) = cutoff_shift {
+                curve.cutoff_shift = v;
+            }
             Ok(CommandOutput::Done)
         }
         Command::SetCutoffs { course_id, cutoffs } => {
@@ -604,6 +739,23 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             gb.course_mut(course_id)
                 .ok_or(CoreError::UnknownCourse(course_id.0))?
                 .cutoffs = cutoffs;
+            Ok(CommandOutput::Done)
+        }
+        Command::SetCutoff {
+            course_id,
+            letter,
+            value,
+        } => {
+            if let Some(v) = value {
+                finite("cutoff", v)?;
+            }
+            let course = gb
+                .course_mut(course_id)
+                .ok_or(CoreError::UnknownCourse(course_id.0))?;
+            match value {
+                Some(v) => course.cutoffs.set(letter, v),
+                None => course.cutoffs.entries.retain(|(l, _)| *l != letter),
+            }
             Ok(CommandOutput::Done)
         }
         Command::ListTerms => Ok(CommandOutput::Terms {
@@ -729,7 +881,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                 name,
                 overrides: Vec::new(),
             });
-            Ok(CommandOutput::Done)
+            Ok(created(EntityKind::Scenario, id.0))
         }
         Command::RenameScenario { id, name } => {
             scenario_mut(gb, id)?.name = name;
@@ -797,12 +949,21 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             gb.scale = scale;
             Ok(CommandOutput::Done)
         }
+        Command::SetGpaScaleEntry { letter, points: p } => {
+            points("gpa points", p)?;
+            gb.scale.set(letter, p);
+            Ok(CommandOutput::Done)
+        }
+        Command::ShowGpaScale => Ok(CommandOutput::GpaScale {
+            scale: gb.scale.clone(),
+        }),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::CourseCurve;
     use crate::testutil::{approx, uid};
 
     fn ids() -> (TermId, CourseId, CategoryId) {
@@ -1069,10 +1230,8 @@ mod tests {
             ));
             let curve_cmd = Command::SetCourseCurve {
                 course_id: c,
-                curve: CourseCurve {
-                    add_points: bad,
-                    cutoff_shift: 0.0,
-                },
+                add_points: Some(bad),
+                cutoff_shift: None,
             };
             assert!(matches!(
                 execute(&mut gb, curve_cmd),
@@ -1080,10 +1239,8 @@ mod tests {
             ));
             let shift_cmd = Command::SetCourseCurve {
                 course_id: c,
-                curve: CourseCurve {
-                    add_points: 0.0,
-                    cutoff_shift: bad,
-                },
+                add_points: None,
+                cutoff_shift: Some(bad),
             };
             assert!(matches!(
                 execute(&mut gb, shift_cmd),
@@ -1155,10 +1312,8 @@ mod tests {
             &mut gb,
             Command::SetCourseCurve {
                 course_id: c,
-                curve: CourseCurve {
-                    add_points: 2.0,
-                    cutoff_shift: 0.0,
-                },
+                add_points: Some(2.0),
+                cutoff_shift: None,
             },
         )
         .unwrap();
@@ -1185,6 +1340,209 @@ mod tests {
         };
         approx(report.current.unwrap(), 90.0);
         assert_eq!(report.current_letter, Some(Letter::BPlus));
+    }
+
+    #[test]
+    fn partial_course_curve_keeps_other_field() {
+        let (mut gb, _, c, _) = setup();
+        let set = |gb: &mut Gradebook, add_points, cutoff_shift| {
+            execute(
+                gb,
+                Command::SetCourseCurve {
+                    course_id: c,
+                    add_points,
+                    cutoff_shift,
+                },
+            )
+            .unwrap();
+        };
+        set(&mut gb, Some(2.0), None);
+        set(&mut gb, None, Some(1.5));
+        let curve = gb.course(c).unwrap().curve;
+        approx(curve.add_points, 2.0);
+        approx(curve.cutoff_shift, 1.5);
+        set(&mut gb, Some(3.0), None);
+        approx(gb.course(c).unwrap().curve.cutoff_shift, 1.5);
+        set(&mut gb, Some(0.0), Some(0.0));
+        assert_eq!(gb.course(c).unwrap().curve, CourseCurve::default());
+        assert!(
+            Command::SetCourseCurve {
+                course_id: c,
+                add_points: None,
+                cutoff_shift: None
+            }
+            .is_mutation()
+        );
+        assert!(
+            Command::SetGpaScaleEntry {
+                letter: Letter::A,
+                points: 4.0
+            }
+            .is_mutation()
+        );
+    }
+
+    #[test]
+    fn set_cutoff_sets_and_removes() {
+        let (mut gb, _, c, _) = setup();
+        let run = |gb: &mut Gradebook, letter, value| {
+            execute(
+                gb,
+                Command::SetCutoff {
+                    course_id: c,
+                    letter,
+                    value,
+                },
+            )
+        };
+        run(&mut gb, Letter::AMinus, Some(91.0)).unwrap();
+        approx(
+            gb.course(c).unwrap().cutoffs.get(Letter::AMinus).unwrap(),
+            91.0,
+        );
+        // Other cutoffs untouched.
+        approx(gb.course(c).unwrap().cutoffs.get(Letter::B).unwrap(), 83.0);
+        run(&mut gb, Letter::APlus, Some(97.0)).unwrap();
+        approx(
+            gb.course(c).unwrap().cutoffs.get(Letter::APlus).unwrap(),
+            97.0,
+        );
+        run(&mut gb, Letter::APlus, None).unwrap();
+        assert!(gb.course(c).unwrap().cutoffs.get(Letter::APlus).is_none());
+        assert!(matches!(
+            run(&mut gb, Letter::A, Some(f64::NAN)),
+            Err(CoreError::NonFinite { .. })
+        ));
+        assert!(matches!(
+            execute(
+                &mut gb,
+                Command::SetCutoff {
+                    course_id: CourseId(uid()),
+                    letter: Letter::A,
+                    value: None
+                }
+            ),
+            Err(CoreError::UnknownCourse(_))
+        ));
+    }
+
+    #[test]
+    fn set_gpa_scale_entry_edits_one_letter() {
+        let mut gb = Gradebook::default();
+        let run = |gb: &mut Gradebook, points| {
+            execute(
+                gb,
+                Command::SetGpaScaleEntry {
+                    letter: Letter::A,
+                    points,
+                },
+            )
+        };
+        run(&mut gb, 4.3).unwrap();
+        approx(gb.scale.get(Letter::A).unwrap(), 4.3);
+        approx(gb.scale.get(Letter::B).unwrap(), 3.0);
+        assert!(run(&mut gb, -1.0).is_err());
+        assert!(run(&mut gb, f64::NAN).is_err());
+        approx(gb.scale.get(Letter::A).unwrap(), 4.3);
+    }
+
+    #[test]
+    fn add_commands_return_created_ids() {
+        let (t, c, k) = ids();
+        let mut gb = Gradebook::default();
+        let out = execute(
+            &mut gb,
+            Command::AddTerm {
+                id: t,
+                name: "Fall".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            CommandOutput::Created {
+                kind: EntityKind::Term,
+                id: t.0
+            }
+        );
+        let out = execute(
+            &mut gb,
+            Command::AddCourse {
+                term_id: t,
+                id: c,
+                name: "M".into(),
+                code: None,
+                credits: 3.0,
+                target: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            CommandOutput::Created {
+                kind: EntityKind::Course,
+                id: c.0
+            }
+        );
+        let out = execute(
+            &mut gb,
+            Command::AddCategory {
+                course_id: c,
+                id: k,
+                name: "H".into(),
+                weight: 1.0,
+                drop_lowest: 0,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            CommandOutput::Created {
+                kind: EntityKind::Category,
+                id: k.0
+            }
+        );
+        let a = AssignmentId(uid());
+        let out = execute(
+            &mut gb,
+            Command::AddAssignment {
+                category_id: k,
+                id: a,
+                name: "x".into(),
+                points_possible: 1.0,
+                score: None,
+                due: None,
+                status: None,
+                curves: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            CommandOutput::Created {
+                kind: EntityKind::Assignment,
+                id: a.0
+            }
+        );
+        let s = ScenarioId(uid());
+        let out = execute(
+            &mut gb,
+            Command::CreateScenario {
+                id: s,
+                name: "S".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            CommandOutput::Created {
+                kind: EntityKind::Scenario,
+                id: s.0
+            }
+        );
+        let json = serde_json::to_value(&out).unwrap();
+        assert_eq!(json["result"], "created");
+        assert_eq!(json["kind"], "scenario");
     }
 
     #[test]
@@ -1496,6 +1854,76 @@ mod tests {
             execute(&mut gb, Command::DeleteScenario { id: sid }),
             Err(CoreError::UnknownScenario(_))
         ));
+    }
+
+    #[test]
+    fn is_mutation_classifies_commands() {
+        let t = TermId(uid());
+        let c = CourseId(uid());
+        assert!(
+            Command::AddTerm {
+                id: t,
+                name: "x".into()
+            }
+            .is_mutation()
+        );
+        assert!(
+            Command::SetTarget {
+                course_id: c,
+                target: None
+            }
+            .is_mutation()
+        );
+        assert!(
+            Command::CreateScenario {
+                id: ScenarioId(uid()),
+                name: "x".into()
+            }
+            .is_mutation()
+        );
+        assert!(
+            Command::SetGpaScale {
+                scale: GpaScale::default()
+            }
+            .is_mutation()
+        );
+        assert!(!Command::ListTerms.is_mutation());
+        assert!(!Command::ShowGpaScale.is_mutation());
+        assert!(!Command::CumulativeGpa { scenario_id: None }.is_mutation());
+        assert!(
+            !Command::SolveTarget {
+                course_id: c,
+                target: None,
+                locked: vec![],
+                with_curve: false,
+                scenario_id: None
+            }
+            .is_mutation()
+        );
+        assert!(
+            !Command::CourseGrade {
+                course_id: c,
+                curve_mode: CurveMode::Apply,
+                scenario_id: None
+            }
+            .is_mutation()
+        );
+    }
+
+    #[test]
+    fn show_gpa_scale_returns_scale() {
+        let mut gb = Gradebook::default();
+        let mut scale = GpaScale::default();
+        scale.set(Letter::A, 4.3);
+        execute(
+            &mut gb,
+            Command::SetGpaScale {
+                scale: scale.clone(),
+            },
+        )
+        .unwrap();
+        let out = execute(&mut gb, Command::ShowGpaScale).unwrap();
+        assert_eq!(out, CommandOutput::GpaScale { scale });
     }
 
     #[test]

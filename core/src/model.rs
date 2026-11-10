@@ -284,6 +284,19 @@ impl Letter {
     }
 }
 
+impl std::str::FromStr for Letter {
+    type Err = crate::error::CoreError;
+
+    /// Case-insensitive: "a-", "B+", " f ".
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let t = s.trim();
+        Letter::ALL
+            .into_iter()
+            .find(|l| l.as_str().eq_ignore_ascii_case(t))
+            .ok_or_else(|| crate::error::CoreError::InvalidLetter(s.to_string()))
+    }
+}
+
 /// Minimum percent for each letter. Letters without an entry are never awarded (F is the fallback).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LetterCutoffs {

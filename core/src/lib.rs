@@ -7,13 +7,17 @@ pub mod gpa;
 pub mod grade;
 pub mod ids;
 pub mod model;
+pub mod refs;
 pub mod scenario;
 pub mod solver;
 
 #[cfg(test)]
 mod testutil;
 
-pub use command::{Command, CommandOutput, execute};
+pub use command::{Command, CommandOutput, EntityKind, execute};
 pub use error::CoreError;
 pub use ids::{AssignmentId, CategoryId, CourseId, ScenarioId, TermId};
 pub use model::*;
+pub use refs::{
+    resolve_assignment, resolve_category, resolve_course, resolve_scenario, resolve_term,
+};
