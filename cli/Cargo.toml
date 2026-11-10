@@ -1,0 +1,19 @@
+[package]
+name = "tally-cli"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "grades"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+dirs = "6"
+serde_json.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+tally-core = { path = "../core" }
+tally-store = { path = "../store" }
