@@ -106,6 +106,18 @@ pub fn hypothetical_id_in_use(gb: &Gradebook, id: AssignmentId) -> bool {
     })
 }
 
+/// Ids of the assignments the scenario adds (hypothetical ones).
+pub fn hypothetical_ids(scenario: &Scenario) -> HashSet<AssignmentId> {
+    scenario
+        .overrides
+        .iter()
+        .filter_map(|o| match o {
+            Override::AddAssignment { assignment, .. } => Some(assignment.id),
+            _ => None,
+        })
+        .collect()
+}
+
 fn apply_override(gb: &mut Gradebook, o: &Override) -> Result<(), CoreError> {
     match o {
         Override::SetScore {

@@ -16,7 +16,7 @@ pub mod solver;
 #[cfg(test)]
 mod testutil;
 
-pub use command::{Command, CommandOutput, EntityKind, execute};
+pub use command::{Command, CommandOutput, CourseView, EntityKind, execute};
 pub use error::CoreError;
 pub use ids::{AssignmentId, CategoryId, CourseId, ScenarioId, TermId};
 pub use model::*;

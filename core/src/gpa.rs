@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn letter_missing_from_scale_is_no_grade() {
         let mut g = gb(vec![graded_course(95.0, 3.0)]);
-        g.scale.points.retain(|(l, _)| *l != Letter::A);
+        g.scale.points.retain(|e| e.letter != Letter::A);
         let r = cumulative_gpa(&g);
         assert_eq!(r.gpa, None);
         assert_eq!(

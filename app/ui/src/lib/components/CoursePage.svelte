@@ -24,8 +24,8 @@
   });
 
   const course = query(() => {
-    const id = courseId;
-    return () => ask({ command: "show_course", course_id: id }, "course").then((o) => o.course);
+    const cmd = { command: "show_course" as const, course_id: courseId, scenario_id: app.scenarioId };
+    return () => ask(cmd, "course").then((o) => o.course);
   });
 
   const grade = query(() => {
@@ -116,14 +116,19 @@
 
     {#if tab === "grades"}
       <div class="stack">
-        {#if (c.categories ?? []).length === 0 && !addingCategory}
+        {#if c.categories.length === 0 && !addingCategory}
           <div class="empty">
             <p>No categories yet. Add one (for example Homework or Exams) to start entering grades.</p>
-            <button type="button" class="btn primary" onclick={() => (addingCategory = true)}>Add category</button>
+            <button type="button" class="btn primary" disabled={!!app.scenarioId} onclick={() => (addingCategory = true)}>
+              Add category
+            </button>
           </div>
         {/if}
-        {#each c.categories ?? [] as category (category.id)}
-          <CategoryCard {category} />
+        {#each c.categories as category (category.id)}
+          <CategoryCard
+            {category}
+            breakdown={grade.value?.categories.find((b) => b.category_id === category.id)}
+          />
         {/each}
         {#if addingCategory}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -147,8 +152,12 @@
             <button type="submit" class="btn primary">Add category</button>
             <button type="button" class="btn ghost" onclick={() => (addingCategory = false)}>Cancel</button>
           </form>
-        {:else if (c.categories ?? []).length > 0}
-          <div><button type="button" class="btn" onclick={() => (addingCategory = true)}>+ Category</button></div>
+        {:else if c.categories.length > 0}
+          <div>
+            <button type="button" class="btn" disabled={!!app.scenarioId} onclick={() => (addingCategory = true)}>
+              + Category
+            </button>
+          </div>
         {/if}
       </div>
     {:else if tab === "target"}

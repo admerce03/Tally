@@ -1,6 +1,6 @@
 <script lang="ts">
   import { app, ask, mutate, navigate, query, toast } from "../app.svelte";
-  import { EXCLUSION_LABEL, LETTERS, dec2, entriesOf, parseNum, plain } from "../format";
+  import { EXCLUSION_LABEL, LETTERS, dec2, parseNum, plain } from "../format";
 
   const report = query(() => {
     const scenario_id = app.scenarioId;
@@ -17,8 +17,8 @@
   const scale = query(() => () => ask({ command: "show_gpa_scale" }, "gpa_scale").then((o) => o.scale));
 
   function scaleText(letter: (typeof LETTERS)[number]): string {
-    const hit = entriesOf(scale.value?.points).find(([l]) => l === letter);
-    return hit ? String(hit[1]) : "";
+    const hit = scale.value?.points.find((e) => e.letter === letter);
+    return hit ? String(hit.points) : "";
   }
 
   async function saveScale(letter: (typeof LETTERS)[number], text: string) {

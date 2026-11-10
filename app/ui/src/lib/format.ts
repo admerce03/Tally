@@ -61,11 +61,6 @@ export function parseNum(s: string): number | undefined {
   return v == null ? undefined : v;
 }
 
-/** Entries from a generated `[unknown, unknown][]` map type. */
-export function entriesOf(e: [unknown, unknown][] | undefined): [Letter, number][] {
-  return (e ?? []) as [Letter, number][];
-}
-
 export type CurveRow = { kind: "add_points" | "scale_top_to" | "set_max"; value: string };
 
 export const CURVE_LABEL: Record<CurveRow["kind"], string> = {

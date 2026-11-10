@@ -1,12 +1,18 @@
 <script lang="ts">
-  import { mutate, toast } from "../app.svelte";
-  import { parseNum } from "../format";
-  import type { Category } from "../generated/output";
+  import { app, mutate, toast } from "../app.svelte";
+  import { parseNum, pct } from "../format";
+  import type { CategoryBreakdown, CategoryView } from "../generated/output";
   import AssignmentForm from "./AssignmentForm.svelte";
   import AssignmentRow from "./AssignmentRow.svelte";
   import ConfirmButton from "./ConfirmButton.svelte";
 
-  let { category }: { category: Category } = $props();
+  let { category, breakdown }: { category: CategoryView; breakdown?: CategoryBreakdown } = $props();
+
+  const inScenario = $derived(!!app.scenarioId);
+  // Dropped rows follow the displayed curve mode (breakdown); fall back to show_course's flag.
+  const droppedIds = $derived(
+    new Set(breakdown?.dropped ?? category.assignments.filter((a) => a.dropped).map((a) => a.id)),
+  );
 
   let editing = $state(false);
   let adding = $state(false);
@@ -62,18 +68,29 @@
       <div class="cluster">
         <h3>{category.name}</h3>
         <span class="pill">weight {category.weight}</span>
-        {#if (category.drop_lowest ?? 0) > 0}
+        {#if category.drop_lowest > 0}
           <span class="pill">drop lowest {category.drop_lowest}</span>
+        {/if}
+        {#if breakdown}
+          <span class="pill accent" title="Category average (after curves and drops)">avg {pct(breakdown.average)}</span>
+          <span
+            class="pill"
+            title="Share of the current grade after renormalizing over categories with graded work"
+          >
+            counts {breakdown.effective_weight.toFixed(1)}%
+          </span>
         {/if}
       </div>
       <div class="cluster">
-        <button type="button" class="btn ghost sm" onclick={startEdit}>Edit</button>
-        <ConfirmButton label="Delete" onconfirm={() => mutate({ command: "remove_category", id: category.id })} />
+        <button type="button" class="btn ghost sm" onclick={startEdit} disabled={inScenario}>Edit</button>
+        {#if !inScenario}
+          <ConfirmButton label="Delete" onconfirm={() => mutate({ command: "remove_category", id: category.id })} />
+        {/if}
       </div>
     {/if}
   </div>
 
-  {#if (category.assignments ?? []).length > 0}
+  {#if category.assignments.length > 0}
     <table>
       <thead>
         <tr>
@@ -85,8 +102,8 @@
         </tr>
       </thead>
       <tbody>
-        {#each category.assignments ?? [] as a (a.id)}
-          <AssignmentRow {a} />
+        {#each category.assignments as a (a.id)}
+          <AssignmentRow {a} dropped={droppedIds.has(a.id)} />
         {/each}
       </tbody>
     </table>

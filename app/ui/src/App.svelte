@@ -19,8 +19,9 @@
     {#if active}
       <div class="banner" role="status">
         <span>
-          Viewing through scenario <strong>{active.name}</strong>. Grades and GPA are hypothetical. Edits you make still
-          change real data.
+          Viewing through scenario <strong>{active.name}</strong>. Grades and GPA are hypothetical. Score, status, curve
+          and new-assignment edits are saved as overrides in this scenario; real data is not changed. Course and
+          category settings still edit real data.
         </span>
         <button type="button" class="btn sm" onclick={() => (app.scenarioId = null)}>Back to real data</button>
       </div>

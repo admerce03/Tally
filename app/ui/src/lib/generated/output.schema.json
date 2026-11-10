@@ -113,17 +113,130 @@
       ],
       "type": "string"
     },
-    "Category": {
+    "AssignmentView": {
+      "description": "An assignment plus flags derived by core, so adapters never re-implement grade rules.",
       "properties": {
-        "assignments": {
+        "counts_as_graded": {
+          "description": "Counted in the current grade (scored, or missing = 0; never excused).",
+          "type": "boolean"
+        },
+        "curves": {
           "default": [],
           "items": {
-            "$ref": "#/$defs/Assignment"
+            "$ref": "#/$defs/AssignmentCurve"
+          },
+          "type": "array"
+        },
+        "dropped": {
+          "description": "Dropped by the category's drop-lowest rule in the current grade (curves applied).",
+          "type": "boolean"
+        },
+        "due": {
+          "default": null,
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hypothetical": {
+          "description": "Added by the scenario being viewed (never true without a scenario).",
+          "type": "boolean"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "points_possible": {
+          "format": "double",
+          "type": "number"
+        },
+        "remaining": {
+          "description": "Unscored work that still counts as remaining (solver, leverage).",
+          "type": "boolean"
+        },
+        "score": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/AssignmentStatus",
+          "default": "pending"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "points_possible",
+        "remaining",
+        "counts_as_graded",
+        "dropped",
+        "hypothetical"
+      ],
+      "type": "object"
+    },
+    "CategoryBreakdown": {
+      "description": "Per-category part of the current grade.",
+      "properties": {
+        "average": {
+          "description": "Current category average (percent) after curves and drops; `None` without graded work.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "category_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "dropped": {
+          "description": "Graded assignments dropped by drop-lowest.",
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effective_weight": {
+          "description": "Share (percent 0-100) of the current grade this category carries after renormalizing\nover categories with graded work; 0 if it is excluded (no graded work, or weight 0).",
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "weight": {
+          "description": "Configured weight.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "category_id",
+        "name",
+        "weight",
+        "effective_weight",
+        "dropped"
+      ],
+      "type": "object"
+    },
+    "CategoryView": {
+      "properties": {
+        "assignments": {
+          "items": {
+            "$ref": "#/$defs/AssignmentView"
           },
           "type": "array"
         },
         "drop_lowest": {
-          "default": 0,
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -143,7 +256,9 @@
       "required": [
         "id",
         "name",
-        "weight"
+        "weight",
+        "drop_lowest",
+        "assignments"
       ],
       "type": "object"
     },
@@ -220,123 +335,6 @@
       ],
       "type": "object"
     },
-    "Course": {
-      "properties": {
-        "categories": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/Category"
-          },
-          "type": "array"
-        },
-        "code": {
-          "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "credits": {
-          "format": "double",
-          "type": "number"
-        },
-        "curve": {
-          "$ref": "#/$defs/CourseCurve",
-          "default": {
-            "add_points": 0.0,
-            "cutoff_shift": 0.0
-          }
-        },
-        "cutoffs": {
-          "$ref": "#/$defs/LetterCutoffs",
-          "default": {
-            "entries": [
-              [
-                "A",
-                93.0
-              ],
-              [
-                "A-",
-                90.0
-              ],
-              [
-                "B+",
-                87.0
-              ],
-              [
-                "B",
-                83.0
-              ],
-              [
-                "B-",
-                80.0
-              ],
-              [
-                "C+",
-                77.0
-              ],
-              [
-                "C",
-                73.0
-              ],
-              [
-                "C-",
-                70.0
-              ],
-              [
-                "D+",
-                67.0
-              ],
-              [
-                "D",
-                63.0
-              ],
-              [
-                "F",
-                0.0
-              ]
-            ]
-          }
-        },
-        "gpa_status": {
-          "$ref": "#/$defs/GpaStatus",
-          "default": "normal"
-        },
-        "id": {
-          "format": "uuid",
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "official_letter": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Letter"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "target": {
-          "default": null,
-          "description": "Target final grade as a percent (0-100).",
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "id",
-        "name",
-        "credits"
-      ],
-      "type": "object"
-    },
     "CourseCurve": {
       "properties": {
         "add_points": {
@@ -408,6 +406,13 @@
     },
     "CourseGradeReport": {
       "properties": {
+        "categories": {
+          "description": "How the current grade is made up, per category (course order).",
+          "items": {
+            "$ref": "#/$defs/CategoryBreakdown"
+          },
+          "type": "array"
+        },
         "course_id": {
           "format": "uuid",
           "type": "string"
@@ -454,7 +459,8 @@
       },
       "required": [
         "course_id",
-        "curve_mode"
+        "curve_mode",
+        "categories"
       ],
       "type": "object"
     },
@@ -482,6 +488,70 @@
         "id",
         "name",
         "credits"
+      ],
+      "type": "object"
+    },
+    "CourseView": {
+      "description": "A course with derived flags on every assignment (output of `show_course`).",
+      "properties": {
+        "categories": {
+          "items": {
+            "$ref": "#/$defs/CategoryView"
+          },
+          "type": "array"
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "credits": {
+          "format": "double",
+          "type": "number"
+        },
+        "curve": {
+          "$ref": "#/$defs/CourseCurve"
+        },
+        "cutoffs": {
+          "$ref": "#/$defs/LetterCutoffs"
+        },
+        "gpa_status": {
+          "$ref": "#/$defs/GpaStatus"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "official_letter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Letter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "credits",
+        "cutoffs",
+        "curve",
+        "gpa_status",
+        "categories"
       ],
       "type": "object"
     },
@@ -518,6 +588,23 @@
       ],
       "type": "string"
     },
+    "CutoffEntry": {
+      "description": "One letter's minimum percent.",
+      "properties": {
+        "letter": {
+          "$ref": "#/$defs/Letter"
+        },
+        "min": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "letter",
+        "min"
+      ],
+      "type": "object"
+    },
     "EntityKind": {
       "description": "What an Add* command created.",
       "enum": [
@@ -539,23 +626,29 @@
       ],
       "type": "string"
     },
+    "GpaEntry": {
+      "description": "Grade points for one letter.",
+      "properties": {
+        "letter": {
+          "$ref": "#/$defs/Letter"
+        },
+        "points": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "letter",
+        "points"
+      ],
+      "type": "object"
+    },
     "GpaScale": {
       "description": "Letter to grade points (editable).",
       "properties": {
         "points": {
           "items": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "$ref": "#/$defs/Letter"
-              },
-              {
-                "format": "double",
-                "type": "number"
-              }
-            ],
-            "type": "array"
+            "$ref": "#/$defs/GpaEntry"
           },
           "type": "array"
         }
@@ -641,18 +734,7 @@
       "properties": {
         "entries": {
           "items": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "$ref": "#/$defs/Letter"
-              },
-              {
-                "format": "double",
-                "type": "number"
-              }
-            ],
-            "type": "array"
+            "$ref": "#/$defs/CutoffEntry"
           },
           "type": "array"
         }
@@ -1169,7 +1251,7 @@
     {
       "properties": {
         "course": {
-          "$ref": "#/$defs/Course"
+          "$ref": "#/$defs/CourseView"
         },
         "result": {
           "const": "course",

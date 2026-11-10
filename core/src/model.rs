@@ -308,88 +308,109 @@ impl std::str::FromStr for Letter {
     }
 }
 
+/// One letter's minimum percent.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct CutoffEntry {
+    pub letter: Letter,
+    pub min: f64,
+}
+
 /// Minimum percent for each letter. Letters without an entry are never awarded (F is the fallback).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LetterCutoffs {
-    pub entries: Vec<(Letter, f64)>,
+    pub entries: Vec<CutoffEntry>,
 }
 
 impl LetterCutoffs {
     pub fn get(&self, letter: Letter) -> Option<f64> {
         self.entries
             .iter()
-            .find(|(l, _)| *l == letter)
-            .map(|(_, v)| *v)
+            .find(|e| e.letter == letter)
+            .map(|e| e.min)
     }
 
     pub fn set(&mut self, letter: Letter, value: f64) {
-        match self.entries.iter_mut().find(|(l, _)| *l == letter) {
-            Some(e) => e.1 = value,
-            None => self.entries.push((letter, value)),
+        match self.entries.iter_mut().find(|e| e.letter == letter) {
+            Some(e) => e.min = value,
+            None => self.entries.push(CutoffEntry { letter, min: value }),
         }
     }
 }
 
 impl Default for LetterCutoffs {
     fn default() -> Self {
+        let e = |letter, min| CutoffEntry { letter, min };
         Self {
             entries: vec![
-                (Letter::A, 93.0),
-                (Letter::AMinus, 90.0),
-                (Letter::BPlus, 87.0),
-                (Letter::B, 83.0),
-                (Letter::BMinus, 80.0),
-                (Letter::CPlus, 77.0),
-                (Letter::C, 73.0),
-                (Letter::CMinus, 70.0),
-                (Letter::DPlus, 67.0),
-                (Letter::D, 63.0),
-                (Letter::F, 0.0),
+                e(Letter::A, 93.0),
+                e(Letter::AMinus, 90.0),
+                e(Letter::BPlus, 87.0),
+                e(Letter::B, 83.0),
+                e(Letter::BMinus, 80.0),
+                e(Letter::CPlus, 77.0),
+                e(Letter::C, 73.0),
+                e(Letter::CMinus, 70.0),
+                e(Letter::DPlus, 67.0),
+                e(Letter::D, 63.0),
+                e(Letter::F, 0.0),
             ],
         }
     }
+}
+
+/// Grade points for one letter.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GpaEntry {
+    pub letter: Letter,
+    pub points: f64,
 }
 
 /// Letter to grade points (editable).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GpaScale {
-    pub points: Vec<(Letter, f64)>,
+    pub points: Vec<GpaEntry>,
 }
 
 impl GpaScale {
     pub fn get(&self, letter: Letter) -> Option<f64> {
         self.points
             .iter()
-            .find(|(l, _)| *l == letter)
-            .map(|(_, v)| *v)
+            .find(|e| e.letter == letter)
+            .map(|e| e.points)
     }
 
     pub fn set(&mut self, letter: Letter, value: f64) {
-        match self.points.iter_mut().find(|(l, _)| *l == letter) {
-            Some(e) => e.1 = value,
-            None => self.points.push((letter, value)),
+        match self.points.iter_mut().find(|e| e.letter == letter) {
+            Some(e) => e.points = value,
+            None => self.points.push(GpaEntry {
+                letter,
+                points: value,
+            }),
         }
     }
 }
 
 impl Default for GpaScale {
     fn default() -> Self {
+        let e = |letter, points| GpaEntry { letter, points };
         Self {
             points: vec![
-                (Letter::APlus, 4.0),
-                (Letter::A, 4.0),
-                (Letter::AMinus, 3.7),
-                (Letter::BPlus, 3.3),
-                (Letter::B, 3.0),
-                (Letter::BMinus, 2.7),
-                (Letter::CPlus, 2.3),
-                (Letter::C, 2.0),
-                (Letter::CMinus, 1.7),
-                (Letter::DPlus, 1.3),
-                (Letter::D, 1.0),
-                (Letter::F, 0.0),
+                e(Letter::APlus, 4.0),
+                e(Letter::A, 4.0),
+                e(Letter::AMinus, 3.7),
+                e(Letter::BPlus, 3.3),
+                e(Letter::B, 3.0),
+                e(Letter::BMinus, 2.7),
+                e(Letter::CPlus, 2.3),
+                e(Letter::C, 2.0),
+                e(Letter::CMinus, 1.7),
+                e(Letter::DPlus, 1.3),
+                e(Letter::D, 1.0),
+                e(Letter::F, 0.0),
             ],
         }
     }

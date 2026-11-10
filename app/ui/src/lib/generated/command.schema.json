@@ -137,6 +137,23 @@
       ],
       "type": "string"
     },
+    "CutoffEntry": {
+      "description": "One letter's minimum percent.",
+      "properties": {
+        "letter": {
+          "$ref": "#/$defs/Letter"
+        },
+        "min": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "letter",
+        "min"
+      ],
+      "type": "object"
+    },
     "EntityKind": {
       "description": "What an Add* command created.",
       "enum": [
@@ -148,23 +165,29 @@
       ],
       "type": "string"
     },
+    "GpaEntry": {
+      "description": "Grade points for one letter.",
+      "properties": {
+        "letter": {
+          "$ref": "#/$defs/Letter"
+        },
+        "points": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "letter",
+        "points"
+      ],
+      "type": "object"
+    },
     "GpaScale": {
       "description": "Letter to grade points (editable).",
       "properties": {
         "points": {
           "items": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "$ref": "#/$defs/Letter"
-              },
-              {
-                "format": "double",
-                "type": "number"
-              }
-            ],
-            "type": "array"
+            "$ref": "#/$defs/GpaEntry"
           },
           "type": "array"
         }
@@ -205,18 +228,7 @@
       "properties": {
         "entries": {
           "items": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "$ref": "#/$defs/Letter"
-              },
-              {
-                "format": "double",
-                "type": "number"
-              }
-            ],
-            "type": "array"
+            "$ref": "#/$defs/CutoffEntry"
           },
           "type": "array"
         }
@@ -985,7 +997,7 @@
       "type": "object"
     },
     {
-      "description": "Show one course in full: settings, curves, cutoffs, categories and assignments with their ids.",
+      "description": "Show one course in full: settings, curves, cutoffs, categories and assignments with their ids, plus derived per-assignment flags (remaining, counts_as_graded, dropped, hypothetical). With `scenario_id`, shows the course as that what-if scenario sees it.",
       "properties": {
         "command": {
           "const": "show_course",
@@ -994,6 +1006,14 @@
         "course_id": {
           "format": "uuid",
           "type": "string"
+        },
+        "scenario_id": {
+          "default": null,
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

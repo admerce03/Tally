@@ -234,9 +234,9 @@ fn cumulative_gpa_excludes_pass_fail() {
     let scale = db.json(&["gpa", "scale"]);
     let a = scale["scale"]["points"]
         .as_array()
-        .and_then(|p| p.iter().find(|e| e[0] == "A"))
+        .and_then(|p| p.iter().find(|e| e["letter"] == "A"))
         .expect("A entry");
-    near(&a[1], 4.3);
+    near(&a["points"], 4.3);
 }
 
 #[test]
@@ -429,8 +429,8 @@ fn partial_curve_cutoff_and_scale_edits() {
         v["course"]["cutoffs"]["entries"]
             .as_array()?
             .iter()
-            .find(|e| e[0] == l)
-            .and_then(|e| e[1].as_f64())
+            .find(|e| e["letter"] == l)
+            .and_then(|e| e["min"].as_f64())
     };
     let show = db.json(&["course", "show", "Calc"]);
     assert_eq!(find(&show, "A+"), Some(97.0));
@@ -444,8 +444,8 @@ fn partial_curve_cutoff_and_scale_edits() {
     let pts = |l: &str| {
         scale["scale"]["points"]
             .as_array()
-            .and_then(|p| p.iter().find(|e| e[0] == l))
-            .and_then(|e| e[1].as_f64())
+            .and_then(|p| p.iter().find(|e| e["letter"] == l))
+            .and_then(|e| e["points"].as_f64())
     };
     assert_eq!(pts("A"), Some(4.3));
     assert_eq!(pts("B"), Some(3.1));

@@ -92,6 +92,7 @@ command: "list_terms"
 } | {
 command: "show_course"
 course_id: string
+scenario_id?: (string | null)
 } | {
 command: "course_grade"
 course_id: string
@@ -235,7 +236,14 @@ export type EntityKind = ("term" | "course" | "category" | "assignment" | "scena
  * Minimum percent for each letter. Letters without an entry are never awarded (F is the fallback).
  */
 export interface LetterCutoffs {
-entries: [unknown, unknown][]
+entries: CutoffEntry[]
+}
+/**
+ * One letter's minimum percent.
+ */
+export interface CutoffEntry {
+letter: Letter
+min: number
 }
 /**
  * A locked expected score: the assignment is assumed to earn `points` raw points (not a percent).
@@ -267,5 +275,12 @@ cutoff_shift?: number
  * Letter to grade points (editable).
  */
 export interface GpaScale {
-points: [unknown, unknown][]
+points: GpaEntry[]
+}
+/**
+ * Grade points for one letter.
+ */
+export interface GpaEntry {
+letter: Letter
+points: number
 }

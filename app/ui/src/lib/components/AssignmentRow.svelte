@@ -1,11 +1,34 @@
 <script lang="ts">
-  import { mutate, toast } from "../app.svelte";
+  import { app, mutate, toast } from "../app.svelte";
   import { STATUSES, cap, describeCurve, parseOptNum, plain } from "../format";
-  import type { Assignment, AssignmentStatus } from "../generated/output";
+  import type { AssignmentStatus, AssignmentView } from "../generated/output";
   import AssignmentForm from "./AssignmentForm.svelte";
   import ConfirmButton from "./ConfirmButton.svelte";
 
-  let { a }: { a: Assignment } = $props();
+  let { a, dropped = false }: { a: AssignmentView; dropped?: boolean } = $props();
+
+  const scenarioId = $derived(app.scenarioId);
+
+  /** Edit a score/status: a scenario override when a scenario is active, else the real data. */
+  function setScore(score: number | null) {
+    return scenarioId
+      ? mutate({
+          command: "add_override",
+          scenario_id: scenarioId,
+          override: { type: "set_score", assignment_id: a.id, score },
+        })
+      : mutate({ command: "update_assignment", id: a.id, score });
+  }
+
+  function setStatus(status: AssignmentStatus) {
+    return scenarioId
+      ? mutate({
+          command: "add_override",
+          scenario_id: scenarioId,
+          override: { type: "set_status", assignment_id: a.id, status },
+        })
+      : mutate({ command: "update_assignment", id: a.id, status });
+  }
 
   let editingScore = $state(false);
   let scoreText = $state("");
@@ -25,7 +48,7 @@
     const v = parseOptNum(scoreText);
     if (v === undefined) return toast("Score must be a number");
     editingScore = false;
-    await mutate({ command: "update_assignment", id: a.id, score: v });
+    await setScore(v);
   }
 
   function scoreKey(e: KeyboardEvent) {
@@ -42,7 +65,11 @@
 
 <tr>
   <td>
-    <div>{a.name}</div>
+    <div class="cluster">
+      <span>{a.name}</span>
+      {#if a.hypothetical}<span class="pill accent" title="Added by the active scenario">hypothetical</span>{/if}
+      {#if dropped}<span class="pill" title="Dropped by the category's drop-lowest rule">dropped</span>{/if}
+    </div>
     {#if (a.curves ?? []).length > 0}
       <div class="small muted">Curve: {(a.curves ?? []).map(describeCurve).join(", ")}</div>
     {/if}
@@ -52,12 +79,7 @@
     <select
       value={a.status ?? "pending"}
       aria-label="Status of {a.name}"
-      onchange={(e) =>
-        mutate({
-          command: "update_assignment",
-          id: a.id,
-          status: e.currentTarget.value as AssignmentStatus,
-        })}
+      onchange={(e) => setStatus(e.currentTarget.value as AssignmentStatus)}
     >
       {#each STATUSES as s (s)}
         <option value={s}>{cap(s)}</option>
@@ -83,7 +105,9 @@
   </td>
   <td class="num">
     <button type="button" class="btn ghost sm" onclick={() => (editingAll = !editingAll)}>Edit</button>
-    <ConfirmButton label="Delete" onconfirm={() => mutate({ command: "remove_assignment", id: a.id })} />
+    {#if !scenarioId}
+      <ConfirmButton label="Delete" onconfirm={() => mutate({ command: "remove_assignment", id: a.id })} />
+    {/if}
   </td>
 </tr>
 {#if editingAll}

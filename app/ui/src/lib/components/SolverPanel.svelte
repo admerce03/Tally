@@ -2,9 +2,9 @@
   import { app, ask, query } from "../app.svelte";
   import { LETTERS, pct, parseNum, plain } from "../format";
   import type { Command } from "../api";
-  import type { Course, Letter } from "../generated/output";
+  import type { CourseView, Letter } from "../generated/output";
 
-  let { course }: { course: Course } = $props();
+  let { course }: { course: CourseView } = $props();
 
   type Mode = "course" | "percent" | "letter";
   let mode = $state<Mode>("percent");
@@ -23,8 +23,8 @@
   });
 
   const ungraded = $derived(
-    (course.categories ?? []).flatMap((c) =>
-      (c.assignments ?? []).filter((a) => a.score == null).map((a) => ({ id: a.id, name: a.name, cat: c.name })),
+    course.categories.flatMap((c) =>
+      c.assignments.filter((a) => a.remaining).map((a) => ({ id: a.id, name: a.name, cat: c.name })),
     ),
   );
 

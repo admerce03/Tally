@@ -1,10 +1,10 @@
 <script lang="ts">
   import { mutate, toast } from "../app.svelte";
-  import { GPA_STATUSES, GPA_STATUS_LABEL, LETTERS, entriesOf, parseNum, parseOptNum } from "../format";
-  import type { Course, GpaStatus, Letter } from "../generated/output";
+  import { GPA_STATUSES, GPA_STATUS_LABEL, LETTERS, parseNum, parseOptNum } from "../format";
+  import type { CourseView, GpaStatus, Letter } from "../generated/output";
   import Drawer from "./Drawer.svelte";
 
-  let { course, onclose }: { course: Course; onclose: () => void } = $props();
+  let { course, onclose }: { course: CourseView; onclose: () => void } = $props();
 
   function init() {
     return {
@@ -21,8 +21,8 @@
   let f = $state(init());
 
   function cutoffText(letter: Letter): string {
-    const hit = entriesOf(course.cutoffs?.entries).find(([l]) => l === letter);
-    return hit ? String(hit[1]) : "";
+    const hit = course.cutoffs.entries.find((e) => e.letter === letter);
+    return hit ? String(hit.min) : "";
   }
 
   async function saveGeneral(e: Event) {
