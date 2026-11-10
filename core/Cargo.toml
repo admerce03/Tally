@@ -1,0 +1,17 @@
+[package]
+name = "tally-core"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "tally_core"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
