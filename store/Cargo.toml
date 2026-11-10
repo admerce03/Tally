@@ -8,6 +8,7 @@ license.workspace = true
 name = "tally_store"
 
 [dependencies]
+dirs = "6"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde_json.workspace = true
 thiserror.workspace = true

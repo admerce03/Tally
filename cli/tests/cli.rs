@@ -546,3 +546,21 @@ fn explicit_db_path_does_not_create_directories() {
     assert_eq!(out.status.code(), Some(1));
     assert!(!missing.parent().is_some_and(|p| p.exists()));
 }
+
+#[test]
+fn resolve_maps_to_core_command() {
+    let db = Db::new();
+    db.calc_course();
+    let t = db.json(&["resolve", "term", "fall"]);
+    assert_eq!(t["result"], "resolved");
+    assert_eq!(t["kind"], "term");
+    assert_eq!(t["name"], "Fall");
+    let c = db.json(&["resolve", "course", "M1"]);
+    assert_eq!(c["name"], "Calc");
+    let k = db.json(&["resolve", "category", "Exams", "--course", "Calc"]);
+    assert_eq!(k["kind"], "category");
+    assert_eq!(k["name"], "Exams");
+    // Category without a course is an error.
+    let out = db.run(&["resolve", "category", "Exams", "--json"]);
+    assert_ne!(out.code, 0);
+}

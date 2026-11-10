@@ -1,0 +1,18 @@
+[package]
+name = "tally-mcp"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tally-mcp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+rmcp = { version = "3.9", default-features = false, features = ["server", "transport-io"] }
+schemars = { version = "1", features = ["chrono04", "uuid1"] }
+serde_json.workspace = true
+tally-core = { path = "../core", features = ["schema"] }
+tally-store = { path = "../store" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }

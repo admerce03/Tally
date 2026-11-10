@@ -7,7 +7,12 @@ license.workspace = true
 [lib]
 name = "tally_core"
 
+[features]
+# Derive `schemars::JsonSchema` on Commands and their input types (used by the MCP adapter).
+schema = ["dep:schemars"]
+
 [dependencies]
+schemars = { version = "1", features = ["chrono04", "uuid1"], optional = true }
 serde.workspace = true
 thiserror.workspace = true
 chrono.workspace = true

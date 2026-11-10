@@ -25,19 +25,16 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum Command {
-    AddTerm {
-        id: TermId,
-        name: String,
-    },
-    RenameTerm {
-        id: TermId,
-        name: String,
-    },
-    RemoveTerm {
-        id: TermId,
-    },
+    /// Create a term (semester/quarter). `id` is a new UUID chosen by the caller. Returns the created id.
+    AddTerm { id: TermId, name: String },
+    /// Rename a term.
+    RenameTerm { id: TermId, name: String },
+    /// Delete a term with all its courses, categories and assignments.
+    RemoveTerm { id: TermId },
+    /// Add a course to a term. `credits` is credit hours; `target` is the goal final grade as a percent (0-100). Returns the created id.
     AddCourse {
         term_id: TermId,
         id: CourseId,
@@ -48,7 +45,7 @@ pub enum Command {
         #[serde(default)]
         target: Option<f64>,
     },
-    /// Fields left out are unchanged; clearable fields accept `null` to clear.
+    /// Partially update a course. Omitted fields are unchanged; `code`, `target` and `official_letter` accept `null` to clear. `gpa_status` is normal, pass_fail, withdrawn or retaken (only normal counts toward GPA).
     UpdateCourse {
         id: CourseId,
         #[serde(default)]
@@ -76,9 +73,9 @@ pub enum Command {
         )]
         official_letter: Option<Option<Letter>>,
     },
-    RemoveCourse {
-        id: CourseId,
-    },
+    /// Delete a course with its categories and assignments.
+    RemoveCourse { id: CourseId },
+    /// Add a grading category (e.g. Homework) to a course. `weight` is the relative weight (any positive scale, e.g. 30 for 30%); `drop_lowest` drops the N lowest graded assignments. Returns the created id.
     AddCategory {
         course_id: CourseId,
         id: CategoryId,
@@ -87,6 +84,7 @@ pub enum Command {
         #[serde(default)]
         drop_lowest: u32,
     },
+    /// Partially update a category; omitted fields are unchanged.
     UpdateCategory {
         id: CategoryId,
         #[serde(default)]
@@ -96,9 +94,9 @@ pub enum Command {
         #[serde(default)]
         drop_lowest: Option<u32>,
     },
-    RemoveCategory {
-        id: CategoryId,
-    },
+    /// Delete a category with its assignments.
+    RemoveCategory { id: CategoryId },
+    /// Add an assignment to a category. Points are raw points (not percents); `score` is raw points earned (omit if not graded yet); `due` is YYYY-MM-DD; `status` defaults to pending; `curves` are optional assignment curves (assumptions, scores stay unchanged). Returns the created id.
     AddAssignment {
         category_id: CategoryId,
         id: AssignmentId,
@@ -113,6 +111,7 @@ pub enum Command {
         #[serde(default)]
         curves: Vec<AssignmentCurve>,
     },
+    /// Partially update an assignment. Omitted fields are unchanged; `score` and `due` accept `null` to clear; `curves` replaces the curve list. Scores are raw points.
     UpdateAssignment {
         id: AssignmentId,
         #[serde(default)]
@@ -136,10 +135,9 @@ pub enum Command {
         #[serde(default)]
         curves: Option<Vec<AssignmentCurve>>,
     },
-    RemoveAssignment {
-        id: AssignmentId,
-    },
-    /// Partial update: fields left out (None) are unchanged. `Some(0.0)` for both clears the curve.
+    /// Delete an assignment.
+    RemoveAssignment { id: AssignmentId },
+    /// Partially update a course curve (an assumption, not data): `add_points` is added to the final percent, `cutoff_shift` lowers every letter cutoff. Omitted fields are unchanged; both 0 clears the curve.
     SetCourseCurve {
         course_id: CourseId,
         #[serde(default)]
@@ -147,22 +145,23 @@ pub enum Command {
         #[serde(default)]
         cutoff_shift: Option<f64>,
     },
-    /// Replace all letter cutoffs of a course.
+    /// Replace all letter cutoffs of a course (minimum percent 0-100 per letter).
     SetCutoffs {
         course_id: CourseId,
         cutoffs: LetterCutoffs,
     },
-    /// Set one letter cutoff; `value: None` removes it.
+    /// Set one letter cutoff (percent 0-100) of a course; `value: null` removes that letter.
     SetCutoff {
         course_id: CourseId,
         letter: Letter,
         #[serde(default)]
         value: Option<f64>,
     },
+    /// List all terms with their courses (ids, names, credits). Start here to discover ids; use show_course for categories and assignments.
     ListTerms,
-    ShowCourse {
-        course_id: CourseId,
-    },
+    /// Show one course in full: settings, curves, cutoffs, categories and assignments with their ids.
+    ShowCourse { course_id: CourseId },
+    /// Current grade (renormalized over categories with graded work) and projected grade (full weights, ungraded work as 0), as percents 0-100 with letters. Curves apply unless `curve_mode` is ignore.
     CourseGrade {
         course_id: CourseId,
         #[serde(default)]
@@ -171,7 +170,7 @@ pub enum Command {
         #[serde(default)]
         scenario_id: Option<ScenarioId>,
     },
-    /// Per-assignment running-grade change, chronological.
+    /// Running-grade change as each graded assignment was graded, in chronological order (percentage points).
     Impact {
         course_id: CourseId,
         #[serde(default)]
@@ -179,7 +178,7 @@ pub enum Command {
         #[serde(default)]
         scenario_id: Option<ScenarioId>,
     },
-    /// Running grade over time.
+    /// Running course grade over time (percents 0-100), one point per date.
     Trends {
         course_id: CourseId,
         #[serde(default)]
@@ -187,7 +186,7 @@ pub enum Command {
         #[serde(default)]
         scenario_id: Option<ScenarioId>,
     },
-    /// Final-grade change per 10% scored on each remaining assignment.
+    /// For each remaining assignment, the final-grade change (percentage points) per 10% scored on it. `baseline` (percent 0-100) is what other remaining work is assumed to score.
     Leverage {
         course_id: CourseId,
         #[serde(default)]
@@ -197,11 +196,12 @@ pub enum Command {
         #[serde(default)]
         scenario_id: Option<ScenarioId>,
     },
+    /// Set or clear (`null`) a course's target final grade, as a percent 0-100.
     SetTarget {
         course_id: CourseId,
         target: Option<f64>,
     },
-    /// `target: None` uses the course's stored target. Curves are ignored unless `with_curve`.
+    /// Solve for the uniform percent (0-100 of points possible) needed on all remaining work to hit a target. Result is secured, on_track{needed} or unreachable. `target` is a percent or letter (omit to use the course target). `locked` fixes expected scores on specific assignments, in raw points. Ignores curves unless `with_curve`.
     SolveTarget {
         course_id: CourseId,
         #[serde(default)]
@@ -213,54 +213,141 @@ pub enum Command {
         #[serde(default)]
         scenario_id: Option<ScenarioId>,
     },
-    CreateScenario {
-        id: ScenarioId,
-        name: String,
-    },
-    RenameScenario {
-        id: ScenarioId,
-        name: String,
-    },
-    DeleteScenario {
-        id: ScenarioId,
-    },
+    /// Create a named what-if scenario (hypothetical scores/curves overlaid on real data; real data is never changed). Returns the created id.
+    CreateScenario { id: ScenarioId, name: String },
+    /// Rename a what-if scenario.
+    RenameScenario { id: ScenarioId, name: String },
+    /// Delete a what-if scenario.
+    DeleteScenario { id: ScenarioId },
+    /// Add a hypothetical change to a scenario (set score/status, add assignment, set curves, set course curve, GPA status, official letter). Scores are raw points.
     AddOverride {
         scenario_id: ScenarioId,
         #[serde(rename = "override")]
         overlay: Override,
     },
+    /// Remove a scenario override by its zero-based index.
     RemoveOverride {
         scenario_id: ScenarioId,
         index: usize,
     },
+    /// List all what-if scenarios with their overrides.
     ListScenarios,
-    /// Real data plus the given scenarios (empty = all) side by side.
+    /// Compare real data and the given scenarios side by side (course grades and GPA). Empty `scenario_ids` means all scenarios.
     CompareScenarios {
         #[serde(default)]
         scenario_ids: Vec<ScenarioId>,
     },
+    /// GPA of one term on the GPA scale (4.0 default), with excluded courses and reasons.
     TermGpa {
         term_id: TermId,
         #[serde(default)]
         scenario_id: Option<ScenarioId>,
     },
+    /// Cumulative GPA across all terms (sum of points x credits / sum of credits), with excluded courses and reasons.
     CumulativeGpa {
         #[serde(default)]
         scenario_id: Option<ScenarioId>,
     },
-    /// Replace the whole GPA scale.
-    SetGpaScale {
-        scale: GpaScale,
-    },
-    /// Set the grade points of one letter.
-    SetGpaScaleEntry {
-        letter: Letter,
-        points: f64,
-    },
+    /// Replace the whole GPA scale (letter to grade points).
+    SetGpaScale { scale: GpaScale },
+    /// Set the grade points of one letter on the GPA scale.
+    SetGpaScaleEntry { letter: Letter, points: f64 },
+    /// Show the GPA scale (letter to grade points).
     ShowGpaScale,
+    /// Resolve a name, code, UUID or unique UUID prefix to an id (read-only). `course` is required for `category` and narrows `assignment`; `scenario` also searches that scenario's hypothetical assignments. Ambiguous or unknown references are errors.
+    Resolve {
+        kind: EntityKind,
+        reference: String,
+        #[serde(default)]
+        course: Option<CourseId>,
+        #[serde(default)]
+        scenario: Option<ScenarioId>,
+    },
 }
 
 impl Command {
+    /// Every serde `command` tag, one per variant. Adapters use it for parity checks.
+    pub const TAGS: &'static [&'static str] = &[
+        "add_term",
+        "rename_term",
+        "remove_term",
+        "add_course",
+        "update_course",
+        "remove_course",
+        "add_category",
+        "update_category",
+        "remove_category",
+        "add_assignment",
+        "update_assignment",
+        "remove_assignment",
+        "set_course_curve",
+        "set_cutoffs",
+        "set_cutoff",
+        "list_terms",
+        "show_course",
+        "course_grade",
+        "impact",
+        "trends",
+        "leverage",
+        "set_target",
+        "solve_target",
+        "create_scenario",
+        "rename_scenario",
+        "delete_scenario",
+        "add_override",
+        "remove_override",
+        "list_scenarios",
+        "compare_scenarios",
+        "term_gpa",
+        "cumulative_gpa",
+        "set_gpa_scale",
+        "set_gpa_scale_entry",
+        "show_gpa_scale",
+        "resolve",
+    ];
+
+    /// The serde tag of this command. Exhaustive on purpose: a new command must be listed here.
+    pub fn tag(&self) -> &'static str {
+        match self {
+            Command::AddTerm { .. } => "add_term",
+            Command::RenameTerm { .. } => "rename_term",
+            Command::RemoveTerm { .. } => "remove_term",
+            Command::AddCourse { .. } => "add_course",
+            Command::UpdateCourse { .. } => "update_course",
+            Command::RemoveCourse { .. } => "remove_course",
+            Command::AddCategory { .. } => "add_category",
+            Command::UpdateCategory { .. } => "update_category",
+            Command::RemoveCategory { .. } => "remove_category",
+            Command::AddAssignment { .. } => "add_assignment",
+            Command::UpdateAssignment { .. } => "update_assignment",
+            Command::RemoveAssignment { .. } => "remove_assignment",
+            Command::SetCourseCurve { .. } => "set_course_curve",
+            Command::SetCutoffs { .. } => "set_cutoffs",
+            Command::SetCutoff { .. } => "set_cutoff",
+            Command::ListTerms => "list_terms",
+            Command::ShowCourse { .. } => "show_course",
+            Command::CourseGrade { .. } => "course_grade",
+            Command::Impact { .. } => "impact",
+            Command::Trends { .. } => "trends",
+            Command::Leverage { .. } => "leverage",
+            Command::SetTarget { .. } => "set_target",
+            Command::SolveTarget { .. } => "solve_target",
+            Command::CreateScenario { .. } => "create_scenario",
+            Command::RenameScenario { .. } => "rename_scenario",
+            Command::DeleteScenario { .. } => "delete_scenario",
+            Command::AddOverride { .. } => "add_override",
+            Command::RemoveOverride { .. } => "remove_override",
+            Command::ListScenarios => "list_scenarios",
+            Command::CompareScenarios { .. } => "compare_scenarios",
+            Command::TermGpa { .. } => "term_gpa",
+            Command::CumulativeGpa { .. } => "cumulative_gpa",
+            Command::SetGpaScale { .. } => "set_gpa_scale",
+            Command::SetGpaScaleEntry { .. } => "set_gpa_scale_entry",
+            Command::ShowGpaScale => "show_gpa_scale",
+            Command::Resolve { .. } => "resolve",
+        }
+    }
+
     /// True if executing this command may change the gradebook (adapters save only then).
     /// Exhaustive on purpose: a new command must be classified here.
     pub fn is_mutation(&self) -> bool {
@@ -299,7 +386,8 @@ impl Command {
             | Command::CompareScenarios { .. }
             | Command::TermGpa { .. }
             | Command::CumulativeGpa { .. }
-            | Command::ShowGpaScale => false,
+            | Command::ShowGpaScale
+            | Command::Resolve { .. } => false,
         }
     }
 }
@@ -333,6 +421,7 @@ pub struct CourseGradeReport {
 
 /// What an Add* command created.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum EntityKind {
     Term,
@@ -340,6 +429,23 @@ pub enum EntityKind {
     Category,
     Assignment,
     Scenario,
+}
+
+impl std::str::FromStr for EntityKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s.trim().to_lowercase().as_str() {
+            "term" => Ok(EntityKind::Term),
+            "course" => Ok(EntityKind::Course),
+            "category" => Ok(EntityKind::Category),
+            "assignment" => Ok(EntityKind::Assignment),
+            "scenario" => Ok(EntityKind::Scenario),
+            other => Err(format!(
+                "unknown kind '{other}' (expected term, course, category, assignment or scenario)"
+            )),
+        }
+    }
 }
 
 impl EntityKind {
@@ -402,6 +508,11 @@ pub enum CommandOutput {
     },
     GpaScale {
         scale: GpaScale,
+    },
+    Resolved {
+        kind: EntityKind,
+        id: uuid::Uuid,
+        name: String,
     },
 }
 
@@ -957,6 +1068,15 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
         Command::ShowGpaScale => Ok(CommandOutput::GpaScale {
             scale: gb.scale.clone(),
         }),
+        Command::Resolve {
+            kind,
+            reference,
+            course,
+            scenario,
+        } => {
+            let (id, name) = crate::refs::resolve_entity(gb, kind, &reference, course, scenario)?;
+            Ok(CommandOutput::Resolved { kind, id, name })
+        }
     }
 }
 
@@ -1955,6 +2075,37 @@ mod tests {
     }
 
     #[test]
+    fn tags_match_serde_tags() {
+        let set: std::collections::BTreeSet<&str> = Command::TAGS.iter().copied().collect();
+        assert_eq!(set.len(), Command::TAGS.len(), "TAGS has duplicates");
+        let uid = || uuid::Uuid::from_u128(7);
+        let samples = [
+            Command::ListTerms,
+            Command::ShowGpaScale,
+            Command::RemoveTerm { id: TermId(uid()) },
+            Command::Resolve {
+                kind: EntityKind::Term,
+                reference: "x".into(),
+                course: None,
+                scenario: None,
+            },
+        ];
+        for c in samples {
+            let v = serde_json::to_value(&c).unwrap();
+            assert_eq!(v["command"], c.tag());
+            assert!(Command::TAGS.contains(&c.tag()));
+        }
+        // Every tag in TAGS is the tag() of some variant: tag() is exhaustive, so
+        // checking the count against the match arms catches a stale list.
+        let src = include_str!("command.rs");
+        let arms = src
+            .lines()
+            .filter(|l| l.trim_start().starts_with("Command::") && l.contains("=> \""))
+            .count();
+        assert_eq!(arms, Command::TAGS.len());
+    }
+
+    #[test]
     fn new_commands_serde_round_trip() {
         let cmds = vec![
             Command::SetTarget {
@@ -2007,6 +2158,12 @@ mod tests {
             Command::SetGpaScale {
                 scale: GpaScale::default(),
             },
+            Command::Resolve {
+                kind: EntityKind::Category,
+                reference: "hw".into(),
+                course: Some(CourseId(uid())),
+                scenario: None,
+            },
         ];
         for c in cmds {
             let json = serde_json::to_string(&c).unwrap();
@@ -2036,6 +2193,42 @@ mod tests {
         })
         .unwrap();
         assert!(json.contains(r#""override":{"type":"set_gpa_status""#));
+    }
+
+    #[test]
+    fn resolve_command_returns_id_and_does_not_mutate() {
+        let (mut gb, t, c, k) = setup();
+        let before = gb.clone();
+        let cmd = |kind, reference: &str, course| Command::Resolve {
+            kind,
+            reference: reference.into(),
+            course,
+            scenario: None,
+        };
+        assert!(!cmd(EntityKind::Term, "x", None).is_mutation());
+        let out = execute(&mut gb, cmd(EntityKind::Course, "m101", None)).unwrap();
+        assert_eq!(
+            out,
+            CommandOutput::Resolved {
+                kind: EntityKind::Course,
+                id: c.0,
+                name: "Math".into()
+            }
+        );
+        let out = execute(&mut gb, cmd(EntityKind::Term, "fall", None)).unwrap();
+        assert!(matches!(out, CommandOutput::Resolved { id, .. } if id == t.0));
+        let out = execute(&mut gb, cmd(EntityKind::Category, &k.to_string(), Some(c))).unwrap();
+        assert!(matches!(out, CommandOutput::Resolved { id, .. } if id == k.0));
+        let err = execute(&mut gb, cmd(EntityKind::Course, "nope", None)).unwrap_err();
+        assert!(matches!(err, CoreError::UnknownRef { .. }));
+        assert_eq!(gb, before);
+        let json = serde_json::to_value(CommandOutput::Resolved {
+            kind: EntityKind::Term,
+            id: t.0,
+            name: "Fall".into(),
+        })
+        .unwrap();
+        assert_eq!(json["result"], "resolved");
     }
 
     #[test]

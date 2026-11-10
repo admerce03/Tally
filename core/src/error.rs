@@ -39,6 +39,11 @@ pub enum CoreError {
     InvalidLetter(String),
     #[error("invalid target '{0}' (expected a percent like 90, 90.5, 90% or a letter like A-)")]
     InvalidTarget(String),
+    #[error("resolving a {kind} requires {needs}")]
+    MissingContext {
+        kind: &'static str,
+        needs: &'static str,
+    },
     #[error("unknown {kind} '{reference}'")]
     UnknownRef {
         kind: &'static str,

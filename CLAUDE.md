@@ -13,13 +13,13 @@ cli/     `grades` CLI (clap); every subcommand supports --json
 server/  Axum sync server + MCP over HTTP (home server)
 ```
 
-Only create crates when their milestone starts. Do NOT scaffold `app/`, `mcp/`, or `server/` yet.
+Only create crates when their milestone starts. Do NOT scaffold `app/` or `server/` yet.
 
 ## PARITY RULE (non-negotiable)
 
 **No feature exists in any UI unless it is a core `Command` first.** UI, CLI, and MCP are thin adapters over core Commands. Never put grade math or business logic in an adapter. If a person can do it, an LLM must be able to do it through the same Command.
 
-## Current milestone: 1 — core + cli (complete)
+## Milestone 1 — core + cli (complete)
 
 Create now: `core` (full), `store` (optional, minimal: SQLite persistence only, no sync yet), `cli`.
 
@@ -66,6 +66,23 @@ Required edge-case tests:
 
 **GPA (editable scale):** A/A+ 4.0, A- 3.7, B+ 3.3, B 3.0, B- 2.7, C+ 2.3, C 2.0, C- 1.7, D+ 1.3, D 1.0, F 0.
 Cumulative = sum(points x credits) / sum(credits). Exclude pass/fail, withdrawals, and retaken courses.
+
+## Milestone 2 — local MCP (stdio) (complete)
+
+Create now: `mcp` crate (`tally-mcp` binary), stdio transport via `rmcp`.
+
+- [x] Every core `Command` is an MCP tool (1:1, generated, so no drift), plus core `Resolve` for name -> id
+- [x] Tools run through `Store::transact`, return `CommandOutput` as JSON (structured + text); errors are tool errors, not crashes
+- [x] Shared DB path resolution lives in `store` (CLI and MCP agree)
+- [x] Integration test drives the server over stdio (initialize, list tools, call tools)
+- [x] Hermes Agent / generic MCP client config documented in README
+
+### MCP design
+
+- **Schemas:** core derives `schemars::JsonSchema` behind an optional `schema` feature (core stays dependency-light for other users). The `mcp` crate takes the `Command` enum schema (internally tagged by `command`), splits it into one tool per variant (tool name = tag, input schema = variant fields without the tag), and on call re-inserts the tag and deserializes into `Command`. Adding a Command automatically adds a tool.
+- **Descriptions:** each `Command` variant has a `///` doc comment; schemars carries it into the tool description, so docs live in core.
+- **Refs:** tools take UUIDs. Agents get ids from `Created` outputs, list/show queries, or the `resolve` tool (core `Command::Resolve { kind, reference, course, scenario }`, using the same resolution order as the CLI).
+- **Concurrency:** each tool call is one `Store::transact`; CLI and MCP can run against the same DB at once.
 
 ## Design decisions (milestone 1)
 
@@ -144,4 +161,4 @@ Do tiny edits (a few lines) directly instead of delegating. Keep replies brief: 
 
 ## Later milestones (do not build yet)
 
-2. Local MCP (stdio). 3. Desktop app (Tauri 2, Windows + macOS). 4. Sync server + remote MCP on home server (Tailscale). Sync design: local SQLite per device, every Command appended to an op log (timestamp + device id), push/pull to server, last-write-wins per field. 5. iOS app; optional Canvas LMS import.
+3. Desktop app (Tauri 2, Windows + macOS). 4. Sync server + remote MCP on home server (Tailscale). Sync design: local SQLite per device, every Command appended to an op log (timestamp + device id), push/pull to server, last-write-wins per field. 5. iOS app; optional Canvas LMS import.

@@ -6,32 +6,18 @@ mod plan;
 mod render;
 
 use std::ffi::OsString;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use clap::error::ErrorKind;
 use tally_core::CommandOutput;
-use tally_store::Store;
+use tally_store::{Store, resolve_db_path};
 
 use crate::args::Cli;
 
-/// The explicit `--db`/`TALLY_DB` path is used as given (the user owns that location); only
-/// the default data directory is created on demand.
-fn db_path(arg: Option<PathBuf>) -> Result<PathBuf> {
-    if let Some(p) = arg {
-        return Ok(p);
-    }
-    let dir = dirs::data_dir()
-        .context("could not determine the data directory; pass --db <PATH>")?
-        .join("Tally");
-    std::fs::create_dir_all(&dir).with_context(|| format!("could not create {}", dir.display()))?;
-    Ok(dir.join("tally.db"))
-}
-
 fn run(cli: Cli) -> Result<String> {
-    let path = db_path(cli.db)?;
+    let path = resolve_db_path(cli.db)?;
     let mut store =
         Store::open(&path).with_context(|| format!("could not open {}", path.display()))?;
     let command = cli.command;

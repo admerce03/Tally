@@ -36,7 +36,9 @@ pub struct SolveResult {
     pub grade_at_needed: Option<f64>,
 }
 
+/// A target grade: `{"percent": 90}` (0-100) or `{"letter": "A-"}` (uses the course cutoff).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TargetSpec {
     Percent(f64),
@@ -67,8 +69,9 @@ impl std::str::FromStr for TargetSpec {
     }
 }
 
-/// A locked expected score (raw points, before curves).
+/// A locked expected score: the assignment is assumed to earn `points` raw points (not a percent).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LockedScore {
     pub assignment_id: AssignmentId,
     pub points: f64,
