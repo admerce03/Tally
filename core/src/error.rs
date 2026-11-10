@@ -23,4 +23,14 @@ pub enum CoreError {
     NonFinite { field: &'static str },
     #[error("invalid curve: {reason}")]
     InvalidCurve { reason: &'static str },
+    #[error("unknown scenario {0}")]
+    UnknownScenario(Uuid),
+    #[error("override index {index} out of range (scenario has {len})")]
+    OverrideIndex { index: usize, len: usize },
+    #[error("no target set for this course and none given")]
+    NoTarget,
+    #[error("assignment {0} is excused and cannot be locked")]
+    LockedExcused(Uuid),
+    #[error("course has no cutoff for letter {0}")]
+    NoCutoff(&'static str),
 }

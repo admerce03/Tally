@@ -2,9 +2,12 @@
 
 pub mod command;
 pub mod error;
+pub mod gpa;
 pub mod grade;
 pub mod ids;
 pub mod model;
+pub mod scenario;
+pub mod solver;
 
 #[cfg(test)]
 mod testutil;

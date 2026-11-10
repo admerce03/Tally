@@ -369,7 +369,7 @@ impl Default for GpaScale {
     }
 }
 
-/// What-if scenario: data only. Overlay logic comes in a later task.
+/// What-if scenario: named overlay of hypothetical changes (see `scenario::apply_scenario`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Scenario {
     pub id: ScenarioId,
@@ -400,5 +400,14 @@ pub enum Override {
     SetCourseCurve {
         course_id: CourseId,
         curve: CourseCurve,
+    },
+    SetGpaStatus {
+        course_id: CourseId,
+        gpa_status: GpaStatus,
+    },
+    SetOfficialLetter {
+        course_id: CourseId,
+        #[serde(default)]
+        letter: Option<Letter>,
     },
 }

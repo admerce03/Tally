@@ -4,12 +4,15 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::CoreError;
+use crate::gpa::{CumulativeGpaReport, TermGpaReport};
 use crate::grade;
-use crate::ids::{AssignmentId, CategoryId, CourseId, TermId};
+use crate::ids::{AssignmentId, CategoryId, CourseId, ScenarioId, TermId};
 use crate::model::{
     Assignment, AssignmentCurve, AssignmentStatus, Category, Course, CourseCurve, CurveMode,
-    GpaStatus, Gradebook, Letter, LetterCutoffs, Term,
+    GpaScale, GpaStatus, Gradebook, Letter, LetterCutoffs, Override, Scenario, Term,
 };
+use crate::scenario::{self, ScenarioColumn};
+use crate::solver::{self, LockedScore, SolveResult, TargetSpec};
 
 /// Distinguishes "field absent" (None) from "set to null" (Some(None)).
 fn double_option<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
@@ -151,6 +154,63 @@ pub enum Command {
         course_id: CourseId,
         #[serde(default)]
         curve_mode: CurveMode,
+        /// Evaluate against this what-if scenario instead of the real data.
+        #[serde(default)]
+        scenario_id: Option<ScenarioId>,
+    },
+    SetTarget {
+        course_id: CourseId,
+        target: Option<f64>,
+    },
+    /// `target: None` uses the course's stored target. Curves are ignored unless `with_curve`.
+    SolveTarget {
+        course_id: CourseId,
+        #[serde(default)]
+        target: Option<TargetSpec>,
+        #[serde(default)]
+        locked: Vec<LockedScore>,
+        #[serde(default)]
+        with_curve: bool,
+        #[serde(default)]
+        scenario_id: Option<ScenarioId>,
+    },
+    CreateScenario {
+        id: ScenarioId,
+        name: String,
+    },
+    RenameScenario {
+        id: ScenarioId,
+        name: String,
+    },
+    DeleteScenario {
+        id: ScenarioId,
+    },
+    AddOverride {
+        scenario_id: ScenarioId,
+        #[serde(rename = "override")]
+        overlay: Override,
+    },
+    RemoveOverride {
+        scenario_id: ScenarioId,
+        index: usize,
+    },
+    ListScenarios,
+    /// Real data plus the given scenarios (empty = all) side by side.
+    CompareScenarios {
+        #[serde(default)]
+        scenario_ids: Vec<ScenarioId>,
+    },
+    TermGpa {
+        term_id: TermId,
+        #[serde(default)]
+        scenario_id: Option<ScenarioId>,
+    },
+    CumulativeGpa {
+        #[serde(default)]
+        scenario_id: Option<ScenarioId>,
+    },
+    SetGpaScale {
+        scale: GpaScale,
     },
 }
 
@@ -188,9 +248,14 @@ pub enum CommandOutput {
     Terms { terms: Vec<TermSummary> },
     Course { course: Box<Course> },
     CourseGrade { report: CourseGradeReport },
+    Solve { solve: SolveResult },
+    Scenarios { scenarios: Vec<Scenario> },
+    Comparison { columns: Vec<ScenarioColumn> },
+    TermGpa { report: TermGpaReport },
+    CumulativeGpa { report: CumulativeGpaReport },
 }
 
-fn finite(field: &'static str, v: f64) -> Result<(), CoreError> {
+pub(crate) fn finite(field: &'static str, v: f64) -> Result<(), CoreError> {
     if v.is_finite() {
         Ok(())
     } else {
@@ -198,7 +263,7 @@ fn finite(field: &'static str, v: f64) -> Result<(), CoreError> {
     }
 }
 
-fn points(field: &'static str, v: f64) -> Result<(), CoreError> {
+pub(crate) fn points(field: &'static str, v: f64) -> Result<(), CoreError> {
     finite(field, v)?;
     if v < 0.0 {
         return Err(CoreError::NegativePoints { field });
@@ -222,7 +287,7 @@ fn credits(v: f64) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn curves(list: &[AssignmentCurve]) -> Result<(), CoreError> {
+pub(crate) fn curves(list: &[AssignmentCurve]) -> Result<(), CoreError> {
     for c in list {
         match *c {
             AssignmentCurve::AddPoints(n) => finite("curve points", n)?,
@@ -245,6 +310,13 @@ fn curves(list: &[AssignmentCurve]) -> Result<(), CoreError> {
         }
     }
     Ok(())
+}
+
+fn scenario_mut(gb: &mut Gradebook, id: ScenarioId) -> Result<&mut Scenario, CoreError> {
+    gb.scenarios
+        .iter_mut()
+        .find(|s| s.id == id)
+        .ok_or(CoreError::UnknownScenario(id.0))
 }
 
 fn dup(kind: &'static str, id: uuid::Uuid) -> CoreError {
@@ -271,7 +343,9 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                 .iter()
                 .position(|t| t.id == id)
                 .ok_or(CoreError::UnknownTerm(id.0))?;
+            let removed = scenario::Removed::from_term(&gb.terms[i]);
             gb.terms.remove(i);
+            scenario::prune_overrides(&mut gb.scenarios, &removed);
             Ok(CommandOutput::Done)
         }
         Command::AddCourse {
@@ -335,13 +409,14 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             Ok(CommandOutput::Done)
         }
         Command::RemoveCourse { id } => {
-            for term in &mut gb.terms {
-                if let Some(i) = term.courses.iter().position(|c| c.id == id) {
-                    term.courses.remove(i);
-                    return Ok(CommandOutput::Done);
-                }
-            }
-            Err(CoreError::UnknownCourse(id.0))
+            let found = gb.terms.iter_mut().find_map(|term| {
+                let i = term.courses.iter().position(|c| c.id == id)?;
+                Some(term.courses.remove(i))
+            });
+            let course = found.ok_or(CoreError::UnknownCourse(id.0))?;
+            let removed = scenario::Removed::from_course(&course);
+            scenario::prune_overrides(&mut gb.scenarios, &removed);
+            Ok(CommandOutput::Done)
         }
         Command::AddCategory {
             course_id,
@@ -386,13 +461,18 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             Ok(CommandOutput::Done)
         }
         Command::RemoveCategory { id } => {
-            for course in gb.terms.iter_mut().flat_map(|t| t.courses.iter_mut()) {
-                if let Some(i) = course.categories.iter().position(|c| c.id == id) {
-                    course.categories.remove(i);
-                    return Ok(CommandOutput::Done);
-                }
-            }
-            Err(CoreError::UnknownCategory(id.0))
+            let found = gb
+                .terms
+                .iter_mut()
+                .flat_map(|t| t.courses.iter_mut())
+                .find_map(|course| {
+                    let i = course.categories.iter().position(|c| c.id == id)?;
+                    Some(course.categories.remove(i))
+                });
+            let cat = found.ok_or(CoreError::UnknownCategory(id.0))?;
+            let removed = scenario::Removed::from_category(&cat);
+            scenario::prune_overrides(&mut gb.scenarios, &removed);
+            Ok(CommandOutput::Done)
         }
         Command::AddAssignment {
             category_id,
@@ -409,7 +489,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                 points("score", s)?;
             }
             curves(&cv)?;
-            if gb.assignment(id).is_some() {
+            if gb.assignment(id).is_some() || scenario::hypothetical_id_in_use(gb, id) {
                 return Err(dup("assignment", id.0));
             }
             let cat = gb
@@ -465,18 +545,19 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             Ok(CommandOutput::Done)
         }
         Command::RemoveAssignment { id } => {
-            for cat in gb
+            let found = gb
                 .terms
                 .iter_mut()
                 .flat_map(|t| t.courses.iter_mut())
                 .flat_map(|c| c.categories.iter_mut())
-            {
-                if let Some(i) = cat.assignments.iter().position(|a| a.id == id) {
-                    cat.assignments.remove(i);
-                    return Ok(CommandOutput::Done);
-                }
-            }
-            Err(CoreError::UnknownAssignment(id.0))
+                .find_map(|cat| {
+                    let i = cat.assignments.iter().position(|a| a.id == id)?;
+                    Some(cat.assignments.remove(i))
+                });
+            found.ok_or(CoreError::UnknownAssignment(id.0))?;
+            let removed = scenario::Removed::from_assignment(id);
+            scenario::prune_overrides(&mut gb.scenarios, &removed);
+            Ok(CommandOutput::Done)
         }
         Command::SetCourseCurve { course_id, curve } => {
             finite("add_points", curve.add_points)?;
@@ -526,8 +607,10 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
         Command::CourseGrade {
             course_id,
             curve_mode,
+            scenario_id,
         } => {
-            let course = gb
+            let view = scenario::view(gb, scenario_id)?;
+            let course = view
                 .course(course_id)
                 .ok_or(CoreError::UnknownCourse(course_id.0))?;
             let current = grade::current_grade(course, curve_mode);
@@ -543,6 +626,106 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                         .map(|g| grade::course_letter(course, g, curve_mode)),
                 },
             })
+        }
+        Command::SetTarget { course_id, target } => {
+            if let Some(t) = target {
+                finite("target", t)?;
+            }
+            gb.course_mut(course_id)
+                .ok_or(CoreError::UnknownCourse(course_id.0))?
+                .target = target;
+            Ok(CommandOutput::Done)
+        }
+        Command::SolveTarget {
+            course_id,
+            target,
+            locked,
+            with_curve,
+            scenario_id,
+        } => {
+            let view = scenario::view(gb, scenario_id)?;
+            let course = view
+                .course(course_id)
+                .ok_or(CoreError::UnknownCourse(course_id.0))?;
+            let result = solver::solve_for_course(course, target, &locked, with_curve)?;
+            Ok(CommandOutput::Solve { solve: result })
+        }
+        Command::CreateScenario { id, name } => {
+            if gb.scenarios.iter().any(|s| s.id == id) {
+                return Err(dup("scenario", id.0));
+            }
+            gb.scenarios.push(Scenario {
+                id,
+                name,
+                overrides: Vec::new(),
+            });
+            Ok(CommandOutput::Done)
+        }
+        Command::RenameScenario { id, name } => {
+            scenario_mut(gb, id)?.name = name;
+            Ok(CommandOutput::Done)
+        }
+        Command::DeleteScenario { id } => {
+            let i = gb
+                .scenarios
+                .iter()
+                .position(|s| s.id == id)
+                .ok_or(CoreError::UnknownScenario(id.0))?;
+            gb.scenarios.remove(i);
+            Ok(CommandOutput::Done)
+        }
+        Command::AddOverride {
+            scenario_id,
+            overlay,
+        } => {
+            // Validate against a candidate so bad ids/values never get stored.
+            let mut candidate = scenario::find_scenario(gb, scenario_id)?.clone();
+            candidate.overrides.push(overlay.clone());
+            scenario::apply_scenario(gb, &candidate)?;
+            scenario_mut(gb, scenario_id)?.overrides.push(overlay);
+            Ok(CommandOutput::Done)
+        }
+        Command::RemoveOverride { scenario_id, index } => {
+            let s = scenario_mut(gb, scenario_id)?;
+            if index >= s.overrides.len() {
+                return Err(CoreError::OverrideIndex {
+                    index,
+                    len: s.overrides.len(),
+                });
+            }
+            s.overrides.remove(index);
+            Ok(CommandOutput::Done)
+        }
+        Command::ListScenarios => Ok(CommandOutput::Scenarios {
+            scenarios: gb.scenarios.clone(),
+        }),
+        Command::CompareScenarios { scenario_ids } => Ok(CommandOutput::Comparison {
+            columns: scenario::compare(gb, &scenario_ids)?,
+        }),
+        Command::TermGpa {
+            term_id,
+            scenario_id,
+        } => {
+            let view = scenario::view(gb, scenario_id)?;
+            let term = view
+                .term(term_id)
+                .ok_or(CoreError::UnknownTerm(term_id.0))?;
+            Ok(CommandOutput::TermGpa {
+                report: crate::gpa::term_gpa(term, &view.scale),
+            })
+        }
+        Command::CumulativeGpa { scenario_id } => {
+            let view = scenario::view(gb, scenario_id)?;
+            Ok(CommandOutput::CumulativeGpa {
+                report: crate::gpa::cumulative_gpa(&view),
+            })
+        }
+        Command::SetGpaScale { scale } => {
+            for (_, v) in &scale.points {
+                points("gpa points", *v)?;
+            }
+            gb.scale = scale;
+            Ok(CommandOutput::Done)
         }
     }
 }
@@ -627,6 +810,7 @@ mod tests {
             Command::CourseGrade {
                 course_id: c,
                 curve_mode: CurveMode::Apply,
+                scenario_id: None,
             },
         )
         .unwrap();
@@ -923,6 +1107,7 @@ mod tests {
             Command::CourseGrade {
                 course_id: c,
                 curve_mode: CurveMode::Apply,
+                scenario_id: None,
             },
         )
         .unwrap() else {
@@ -1001,8 +1186,416 @@ mod tests {
         let q = Command::CourseGrade {
             course_id: CourseId(uid()),
             curve_mode: CurveMode::Ignore,
+            scenario_id: None,
         };
         let back: Command = serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap();
         assert_eq!(q, back);
+    }
+
+    #[test]
+    fn solve_and_target_commands() {
+        let (mut gb, _t, c, k) = setup();
+        add_asg(&mut gb, k, 100.0, Some(80.0));
+        let pending = add_asg(&mut gb, k, 100.0, None);
+        // Stored target is 90 (from setup): average of 80 and x => x = 100.
+        let out = execute(
+            &mut gb,
+            Command::SolveTarget {
+                course_id: c,
+                target: None,
+                locked: vec![],
+                with_curve: false,
+                scenario_id: None,
+            },
+        )
+        .unwrap();
+        let CommandOutput::Solve { solve: result } = out else {
+            panic!()
+        };
+        let solver::SolveStatus::OnTrack { needed } = result.status else {
+            panic!("{result:?}")
+        };
+        assert!((needed - 100.0).abs() < 1e-6);
+        // Letter target resolves through the cutoffs (B = 83 -> needs 86).
+        let out = execute(
+            &mut gb,
+            Command::SolveTarget {
+                course_id: c,
+                target: Some(TargetSpec::Letter(Letter::B)),
+                locked: vec![],
+                with_curve: false,
+                scenario_id: None,
+            },
+        )
+        .unwrap();
+        let CommandOutput::Solve { solve: result } = out else {
+            panic!()
+        };
+        approx(result.target_percent, 83.0);
+        // Unknown locked assignment errors.
+        let err = execute(
+            &mut gb,
+            Command::SolveTarget {
+                course_id: c,
+                target: None,
+                locked: vec![LockedScore {
+                    assignment_id: AssignmentId(uid()),
+                    points: 1.0,
+                }],
+                with_curve: false,
+                scenario_id: None,
+            },
+        );
+        assert!(matches!(err, Err(CoreError::UnknownAssignment(_))));
+        // SetTarget None then solve with no target errors; scenario view is used.
+        execute(
+            &mut gb,
+            Command::SetTarget {
+                course_id: c,
+                target: None,
+            },
+        )
+        .unwrap();
+        let no_target = |gb: &mut Gradebook, sid| {
+            execute(
+                gb,
+                Command::SolveTarget {
+                    course_id: c,
+                    target: None,
+                    locked: vec![],
+                    with_curve: false,
+                    scenario_id: sid,
+                },
+            )
+        };
+        assert_eq!(no_target(&mut gb, None), Err(CoreError::NoTarget));
+        let sid = ScenarioId(uid());
+        execute(
+            &mut gb,
+            Command::CreateScenario {
+                id: sid,
+                name: "s".into(),
+            },
+        )
+        .unwrap();
+        execute(
+            &mut gb,
+            Command::AddOverride {
+                scenario_id: sid,
+                overlay: Override::SetScore {
+                    assignment_id: pending,
+                    score: Some(100.0),
+                },
+            },
+        )
+        .unwrap();
+        let out = execute(
+            &mut gb,
+            Command::SolveTarget {
+                course_id: c,
+                target: Some(TargetSpec::Percent(85.0)),
+                locked: vec![],
+                with_curve: false,
+                scenario_id: Some(sid),
+            },
+        )
+        .unwrap();
+        let CommandOutput::Solve { solve: result } = out else {
+            panic!()
+        };
+        // Scenario has no remaining work and 90% >= 85%.
+        assert_eq!(result.status, solver::SolveStatus::Secured);
+    }
+
+    #[test]
+    fn scenario_lifecycle_and_gpa_commands() {
+        let (mut gb, t, c, k) = setup();
+        let a = add_asg(&mut gb, k, 100.0, Some(90.0));
+        let sid = ScenarioId(uid());
+        let create = Command::CreateScenario {
+            id: sid,
+            name: "what if".into(),
+        };
+        execute(&mut gb, create.clone()).unwrap();
+        assert!(matches!(
+            execute(&mut gb, create),
+            Err(CoreError::DuplicateId { .. })
+        ));
+        execute(
+            &mut gb,
+            Command::RenameScenario {
+                id: sid,
+                name: "renamed".into(),
+            },
+        )
+        .unwrap();
+        // Bad override is rejected and not stored.
+        let bad = Command::AddOverride {
+            scenario_id: sid,
+            overlay: Override::SetScore {
+                assignment_id: AssignmentId(uid()),
+                score: Some(1.0),
+            },
+        };
+        assert!(execute(&mut gb, bad).is_err());
+        assert!(gb.scenarios[0].overrides.is_empty());
+        execute(
+            &mut gb,
+            Command::AddOverride {
+                scenario_id: sid,
+                overlay: Override::SetScore {
+                    assignment_id: a,
+                    score: Some(100.0),
+                },
+            },
+        )
+        .unwrap();
+        let before = gb.clone();
+        let gpa_of = |gb: &mut Gradebook, s| {
+            let CommandOutput::CumulativeGpa { report } =
+                execute(gb, Command::CumulativeGpa { scenario_id: s }).unwrap()
+            else {
+                panic!()
+            };
+            report.gpa
+        };
+        approx(gpa_of(&mut gb, None).unwrap(), 3.7);
+        approx(gpa_of(&mut gb, Some(sid)).unwrap(), 4.0);
+        let CommandOutput::TermGpa { report } = execute(
+            &mut gb,
+            Command::TermGpa {
+                term_id: t,
+                scenario_id: Some(sid),
+            },
+        )
+        .unwrap() else {
+            panic!()
+        };
+        approx(report.gpa.unwrap(), 4.0);
+        let CommandOutput::CourseGrade { report } = execute(
+            &mut gb,
+            Command::CourseGrade {
+                course_id: c,
+                curve_mode: CurveMode::Apply,
+                scenario_id: Some(sid),
+            },
+        )
+        .unwrap() else {
+            panic!()
+        };
+        approx(report.current.unwrap(), 100.0);
+        let CommandOutput::Comparison { columns } = execute(
+            &mut gb,
+            Command::CompareScenarios {
+                scenario_ids: vec![],
+            },
+        )
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(columns.len(), 2);
+        assert_eq!(gb, before);
+        // Remove override: index out of range, then valid.
+        assert!(matches!(
+            execute(
+                &mut gb,
+                Command::RemoveOverride {
+                    scenario_id: sid,
+                    index: 5
+                }
+            ),
+            Err(CoreError::OverrideIndex { .. })
+        ));
+        execute(
+            &mut gb,
+            Command::RemoveOverride {
+                scenario_id: sid,
+                index: 0,
+            },
+        )
+        .unwrap();
+        let CommandOutput::Scenarios { scenarios } =
+            execute(&mut gb, Command::ListScenarios).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(scenarios.len(), 1);
+        assert_eq!(scenarios[0].name, "renamed");
+        execute(&mut gb, Command::DeleteScenario { id: sid }).unwrap();
+        assert!(matches!(
+            execute(&mut gb, Command::DeleteScenario { id: sid }),
+            Err(CoreError::UnknownScenario(_))
+        ));
+    }
+
+    #[test]
+    fn set_gpa_scale_validates() {
+        let mut gb = Gradebook::default();
+        let mut scale = GpaScale::default();
+        scale.set(Letter::A, 5.0);
+        execute(
+            &mut gb,
+            Command::SetGpaScale {
+                scale: scale.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(gb.scale, scale);
+        scale.set(Letter::B, -1.0);
+        assert!(
+            execute(
+                &mut gb,
+                Command::SetGpaScale {
+                    scale: scale.clone()
+                }
+            )
+            .is_err()
+        );
+        scale.set(Letter::B, f64::NAN);
+        assert!(execute(&mut gb, Command::SetGpaScale { scale }).is_err());
+        approx(gb.scale.get(Letter::A).unwrap(), 5.0);
+    }
+
+    #[test]
+    fn new_commands_serde_round_trip() {
+        let cmds = vec![
+            Command::SetTarget {
+                course_id: CourseId(uid()),
+                target: Some(90.0),
+            },
+            Command::SolveTarget {
+                course_id: CourseId(uid()),
+                target: Some(TargetSpec::Letter(Letter::AMinus)),
+                locked: vec![LockedScore {
+                    assignment_id: AssignmentId(uid()),
+                    points: 9.0,
+                }],
+                with_curve: true,
+                scenario_id: Some(ScenarioId(uid())),
+            },
+            Command::SolveTarget {
+                course_id: CourseId(uid()),
+                target: Some(TargetSpec::Percent(88.5)),
+                locked: vec![],
+                with_curve: false,
+                scenario_id: None,
+            },
+            Command::CreateScenario {
+                id: ScenarioId(uid()),
+                name: "n".into(),
+            },
+            Command::AddOverride {
+                scenario_id: ScenarioId(uid()),
+                overlay: Override::SetOfficialLetter {
+                    course_id: CourseId(uid()),
+                    letter: Some(Letter::B),
+                },
+            },
+            Command::RemoveOverride {
+                scenario_id: ScenarioId(uid()),
+                index: 2,
+            },
+            Command::ListScenarios,
+            Command::CompareScenarios {
+                scenario_ids: vec![ScenarioId(uid())],
+            },
+            Command::TermGpa {
+                term_id: TermId(uid()),
+                scenario_id: None,
+            },
+            Command::CumulativeGpa {
+                scenario_id: Some(ScenarioId(uid())),
+            },
+            Command::SetGpaScale {
+                scale: GpaScale::default(),
+            },
+        ];
+        for c in cmds {
+            let json = serde_json::to_string(&c).unwrap();
+            let back: Command = serde_json::from_str(&json).unwrap();
+            assert_eq!(c, back, "{json}");
+        }
+        // Defaults: omitted optional fields parse.
+        let json = format!(
+            r#"{{"command":"solve_target","course_id":"{}"}}"#,
+            uuid::Uuid::from_u128(1)
+        );
+        let c: Command = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            c,
+            Command::SolveTarget {
+                target: None,
+                with_curve: false,
+                ..
+            }
+        ));
+        let json = serde_json::to_string(&Command::AddOverride {
+            scenario_id: ScenarioId(uid()),
+            overlay: Override::SetGpaStatus {
+                course_id: CourseId(uid()),
+                gpa_status: GpaStatus::Withdrawn,
+            },
+        })
+        .unwrap();
+        assert!(json.contains(r#""override":{"type":"set_gpa_status""#));
+    }
+
+    #[test]
+    fn removal_prunes_scenario_overrides_and_ids_do_not_collide() {
+        let (mut gb, _t, c, k) = setup();
+        let a = add_asg(&mut gb, k, 100.0, None);
+        let hyp = AssignmentId(uid());
+        let sid = ScenarioId(uid());
+        gb.scenarios.push(Scenario {
+            id: sid,
+            name: "s".into(),
+            overrides: vec![
+                Override::SetScore {
+                    assignment_id: a,
+                    score: Some(50.0),
+                },
+                Override::AddAssignment {
+                    category_id: k,
+                    assignment: Assignment::new(hyp, "h", 10.0),
+                },
+                Override::SetScore {
+                    assignment_id: hyp,
+                    score: Some(5.0),
+                },
+            ],
+        });
+        // Real add with a hypothetical's id is rejected.
+        assert!(matches!(
+            execute(
+                &mut gb,
+                Command::AddAssignment {
+                    category_id: k,
+                    id: hyp,
+                    name: "x".into(),
+                    points_possible: 1.0,
+                    score: None,
+                    due: None,
+                    status: None,
+                    curves: vec![],
+                }
+            ),
+            Err(CoreError::DuplicateId { .. })
+        ));
+        execute(&mut gb, Command::RemoveAssignment { id: a }).unwrap();
+        assert_eq!(gb.scenarios[0].overrides.len(), 2);
+        let out = execute(
+            &mut gb,
+            Command::CompareScenarios {
+                scenario_ids: vec![],
+            },
+        )
+        .unwrap();
+        let CommandOutput::Comparison { columns } = out else {
+            panic!("expected comparison");
+        };
+        assert!(columns.iter().all(|c| c.error.is_none()));
+        // Removing the course prunes everything nested.
+        execute(&mut gb, Command::RemoveCourse { id: c }).unwrap();
+        assert!(gb.scenarios[0].overrides.is_empty());
     }
 }
