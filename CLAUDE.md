@@ -1,4 +1,4 @@
-# Grades App
+# Tally
 
 Modern minimalist desktop app that shows grades per class, per term, and cumulative GPA (standard 4.0 scale). Features: target-grade solver, what-if scenarios, grade analysis (impact, leverage, trends). Every capability is available to LLM agents via MCP and CLI (primary agent: Hermes Agent on the user's home server). Cross-device sync. Platforms: Windows + macOS desktop, iOS later. Language: Rust.
 
@@ -95,6 +95,17 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+## Delegation (save tokens)
+
+The main session plans, makes grade-math design decisions, and reviews. Delegate the rest to subagents in `.claude/agents/`:
+- `implementer` (Sonnet): writes code for one scoped task. Give it a precise spec.
+- `test-writer` (Sonnet): writes unit tests from the rules and edge-case list.
+- `test-runner` (Haiku): runs fmt/clippy/tests and reports only failures. Never run cargo in the main session.
+- `reviewer` (Sonnet): read-only review of the diff before committing.
+- `docs-researcher` (Haiku): looks up crate/tool docs and returns a short answer.
+
+Do tiny edits (a few lines) directly instead of delegating. Keep replies brief: no restating diffs or logs.
 
 ## Workflow
 
