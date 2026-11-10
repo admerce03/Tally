@@ -387,7 +387,12 @@ impl Store {
                 pushed INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS ops_order
-                ON ops (wall_ms, counter, device_id, op_id);",
+                ON ops (wall_ms, counter, device_id, op_id);
+            CREATE TABLE IF NOT EXISTS server_ops (
+                server_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_id TEXT NOT NULL UNIQUE,
+                op_json TEXT NOT NULL
+            );",
         )?;
         let version: Option<i64> = tx
             .query_row(
@@ -590,6 +595,94 @@ impl Store {
         tx.commit()?;
         Ok(skipped)
     }
+}
+
+/// One page of the server op registry, see [`Store::server_log_pull`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServerLogPage {
+    /// `(server_seq, op)` with `server_seq > since`, ascending.
+    pub ops: Vec<(i64, Op)>,
+    /// Cursor to pass as `since` next time (the last returned seq, or `since` if empty).
+    pub next: i64,
+    /// True when more ops exist after `next`.
+    pub more: bool,
+}
+
+/// Server-side op registry (the `server_ops` table): every op the server knows, with a
+/// monotonic `server_seq` that devices use as a pull cursor. Used only by the sync server.
+impl Store {
+    /// Register ops idempotently by `op_id`. Returns, per input op, whether it was new.
+    pub fn server_log_append(&mut self, ops: &[Op]) -> Result<Vec<bool>, StoreError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let out = server_log_append_in(&tx, ops)?;
+        tx.commit()?;
+        Ok(out)
+    }
+
+    /// Highest assigned `server_seq` (0 when empty).
+    pub fn server_log_head(&self) -> Result<i64, StoreError> {
+        Ok(self.conn.query_row(
+            "SELECT COALESCE(MAX(server_seq), 0) FROM server_ops",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Ops after cursor `since`, at most `limit` (at least 1).
+    pub fn server_log_pull(&self, since: i64, limit: usize) -> Result<ServerLogPage, StoreError> {
+        let limit = limit.max(1);
+        let fetch = i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX);
+        let mut stmt = self.conn.prepare(
+            "SELECT server_seq, op_json FROM server_ops WHERE server_seq > ?1
+             ORDER BY server_seq LIMIT ?2",
+        )?;
+        let mut rows = stmt.query(params![since, fetch])?;
+        let mut ops = Vec::new();
+        while let Some(row) = rows.next()? {
+            let seq: i64 = row.get(0)?;
+            let json: String = row.get(1)?;
+            ops.push((seq, serde_json::from_str::<Op>(&json)?));
+        }
+        let more = ops.len() > limit;
+        ops.truncate(limit);
+        let next = ops.last().map_or(since, |(seq, _)| *seq);
+        Ok(ServerLogPage { ops, next, more })
+    }
+
+    /// Register this store's own locally created ops (from `transact`) in the registry so
+    /// devices can pull them, and mark them as pushed. Returns how many were registered.
+    pub fn server_log_register_local(&mut self) -> Result<usize, StoreError> {
+        let local = self.unpushed_ops()?;
+        if local.is_empty() {
+            return Ok(0);
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        server_log_append_in(&tx, &local)?;
+        for op in &local {
+            tx.execute(
+                "UPDATE ops SET pushed = 1 WHERE op_id = ?1",
+                params![op.op_id.0.to_string()],
+            )?;
+        }
+        tx.commit()?;
+        Ok(local.len())
+    }
+}
+
+fn server_log_append_in(conn: &Connection, ops: &[Op]) -> Result<Vec<bool>, StoreError> {
+    let mut out = Vec::with_capacity(ops.len());
+    for op in ops {
+        let n = conn.execute(
+            "INSERT OR IGNORE INTO server_ops (op_id, op_json) VALUES (?1, ?2)",
+            params![op.op_id.0.to_string(), serde_json::to_string(op)?],
+        )?;
+        out.push(n > 0);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
