@@ -32,6 +32,12 @@ pub enum Command {
     AddTerm { id: TermId, name: String },
     /// Rename a term.
     RenameTerm { id: TermId, name: String },
+    /// Set (or clear, with `year` omitted or null) the academic year a term belongs to, e.g. 2026. Apps group and sort terms by it.
+    SetTermYear {
+        id: TermId,
+        #[serde(default)]
+        year: Option<i32>,
+    },
     /// Delete a term with all its courses, categories and assignments.
     RemoveTerm { id: TermId },
     /// Add a course to a term. `credits` is credit hours; `target` is the goal final grade as a percent (0-100). Returns the created id.
@@ -205,7 +211,7 @@ pub enum Command {
         course_id: CourseId,
         target: Option<f64>,
     },
-    /// Solve for the uniform percent (0-100 of points possible) needed on all remaining work to hit a target. Result is secured, on_track{needed} or unreachable. `target` is a percent or letter (omit to use the course target). `locked` fixes expected scores on specific assignments, in raw points. Ignores curves unless `with_curve`.
+    /// Solve for the uniform percent (0-100 of points possible) needed on all remaining work to hit a target. Result is secured, on_track{needed} or unreachable. `target` is a percent or letter (omit to use the course target). `locked` fixes expected scores on specific assignments, in raw points. Ignores curves unless `with_curve`. `needed_scores` lists, per remaining assignment (course list order), the raw points needed.
     SolveTarget {
         course_id: CourseId,
         #[serde(default)]
@@ -223,7 +229,7 @@ pub enum Command {
     RenameScenario { id: ScenarioId, name: String },
     /// Delete a what-if scenario.
     DeleteScenario { id: ScenarioId },
-    /// Add a hypothetical change to a scenario (set score/status, add assignment, set curves, set course curve, GPA status, official letter). Scores are raw points.
+    /// Add a hypothetical change to a scenario (set score/status, add assignment, set curves, set course curve, GPA status, official letter). Scores are raw points. A `set_*` change replaces the scenario's existing change of the same type for the same assignment or course (keeping its position); `add_assignment` always appends.
     AddOverride {
         scenario_id: ScenarioId,
         #[serde(rename = "override")]
@@ -278,6 +284,7 @@ impl Command {
     pub const TAGS: &'static [&'static str] = &[
         "add_term",
         "rename_term",
+        "set_term_year",
         "remove_term",
         "add_course",
         "update_course",
@@ -321,6 +328,7 @@ impl Command {
         match self {
             Command::AddTerm { .. } => "add_term",
             Command::RenameTerm { .. } => "rename_term",
+            Command::SetTermYear { .. } => "set_term_year",
             Command::RemoveTerm { .. } => "remove_term",
             Command::AddCourse { .. } => "add_course",
             Command::UpdateCourse { .. } => "update_course",
@@ -366,6 +374,7 @@ impl Command {
         match self {
             Command::AddTerm { .. }
             | Command::RenameTerm { .. }
+            | Command::SetTermYear { .. }
             | Command::RemoveTerm { .. }
             | Command::AddCourse { .. }
             | Command::UpdateCourse { .. }
@@ -420,6 +429,8 @@ pub struct CourseSummary {
 pub struct TermSummary {
     pub id: TermId,
     pub name: String,
+    /// Academic year, when set (`set_term_year`).
+    pub year: Option<i32>,
     pub courses: Vec<CourseSummary>,
 }
 
@@ -703,6 +714,13 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
         }
         Command::RenameTerm { id, name } => {
             gb.term_mut(id).ok_or(CoreError::UnknownTerm(id.0))?.name = name;
+            Ok(CommandOutput::Done)
+        }
+        Command::SetTermYear { id, year } => {
+            if year.is_some_and(|y| !(1000..=9999).contains(&y)) {
+                return Err(CoreError::InvalidYear);
+            }
+            gb.term_mut(id).ok_or(CoreError::UnknownTerm(id.0))?.year = year;
             Ok(CommandOutput::Done)
         }
         Command::RemoveTerm { id } => {
@@ -990,6 +1008,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                 .map(|t| TermSummary {
                     id: t.id,
                     name: t.name.clone(),
+                    year: t.year,
                     courses: t
                         .courses
                         .iter()
@@ -1136,9 +1155,9 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
         } => {
             // Validate against a candidate so bad ids/values never get stored.
             let mut candidate = scenario::find_scenario(gb, scenario_id)?.clone();
-            candidate.overrides.push(overlay.clone());
+            scenario::upsert_override(&mut candidate.overrides, overlay.clone());
             scenario::apply_scenario(gb, &candidate)?;
-            scenario_mut(gb, scenario_id)?.overrides.push(overlay);
+            scenario::upsert_override(&mut scenario_mut(gb, scenario_id)?.overrides, overlay);
             Ok(CommandOutput::Done)
         }
         Command::RemoveOverride { scenario_id, index } => {
@@ -2108,6 +2127,105 @@ mod tests {
         };
         // Scenario has no remaining work and 90% >= 85%.
         assert_eq!(result.status, solver::SolveStatus::Secured);
+    }
+
+    #[test]
+    fn set_term_year_sets_clears_and_validates() {
+        let (mut gb, t, _c, _k) = setup();
+        let set = |gb: &mut Gradebook, year| execute(gb, Command::SetTermYear { id: t, year });
+        set(&mut gb, Some(2026)).unwrap();
+        assert_eq!(gb.term(t).unwrap().year, Some(2026));
+        let CommandOutput::Terms { terms } = execute(&mut gb, Command::ListTerms).unwrap() else {
+            panic!()
+        };
+        assert_eq!(terms[0].year, Some(2026));
+        assert!(matches!(
+            set(&mut gb, Some(26)),
+            Err(CoreError::InvalidYear)
+        ));
+        assert_eq!(gb.term(t).unwrap().year, Some(2026));
+        set(&mut gb, None).unwrap();
+        assert_eq!(gb.term(t).unwrap().year, None);
+        assert!(matches!(
+            execute(
+                &mut gb,
+                Command::SetTermYear {
+                    id: TermId(uid()),
+                    year: Some(2026)
+                }
+            ),
+            Err(CoreError::UnknownTerm(_))
+        ));
+        // Old data without the field still loads.
+        let json = serde_json::json!({"id": t.0, "name": "Fall"});
+        let term: Term = serde_json::from_value(json).unwrap();
+        assert_eq!(term.year, None);
+        // Omitted year clears.
+        let cmd: Command =
+            serde_json::from_value(serde_json::json!({"command": "set_term_year", "id": t.0}))
+                .unwrap();
+        assert_eq!(cmd, Command::SetTermYear { id: t, year: None });
+    }
+
+    #[test]
+    fn add_override_replaces_same_kind_for_same_target() {
+        let (mut gb, _t, _c, k) = setup();
+        let a = add_asg(&mut gb, k, 100.0, None);
+        let b = add_asg(&mut gb, k, 100.0, None);
+        let sid = ScenarioId(uid());
+        execute(
+            &mut gb,
+            Command::CreateScenario {
+                id: sid,
+                name: "s".into(),
+            },
+        )
+        .unwrap();
+        let set = |gb: &mut Gradebook, id, score| {
+            execute(
+                gb,
+                Command::AddOverride {
+                    scenario_id: sid,
+                    overlay: Override::SetScore {
+                        assignment_id: id,
+                        score: Some(score),
+                    },
+                },
+            )
+            .unwrap();
+        };
+        set(&mut gb, a, 80.0);
+        set(&mut gb, b, 70.0);
+        set(&mut gb, a, 100.0);
+        assert_eq!(
+            gb.scenarios[0].overrides,
+            vec![
+                Override::SetScore {
+                    assignment_id: a,
+                    score: Some(100.0),
+                },
+                Override::SetScore {
+                    assignment_id: b,
+                    score: Some(70.0),
+                },
+            ]
+        );
+        // A rejected replacement leaves the stored override untouched.
+        let bad = Command::AddOverride {
+            scenario_id: sid,
+            overlay: Override::SetScore {
+                assignment_id: a,
+                score: Some(f64::NAN),
+            },
+        };
+        assert!(execute(&mut gb, bad).is_err());
+        assert_eq!(
+            gb.scenarios[0].overrides[0],
+            Override::SetScore {
+                assignment_id: a,
+                score: Some(100.0),
+            }
+        );
     }
 
     #[test]

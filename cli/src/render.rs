@@ -118,7 +118,8 @@ pub fn render(out: &CommandOutput) -> String {
             }
             let mut s = String::new();
             for t in terms {
-                let _ = writeln!(s, "{} {}", t.name, id(t.id.0));
+                let year = t.year.map(|y| format!(" ({y})")).unwrap_or_default();
+                let _ = writeln!(s, "{}{year} {}", t.name, id(t.id.0));
                 for c in &t.courses {
                     let code = c
                         .code

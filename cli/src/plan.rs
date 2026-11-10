@@ -176,6 +176,10 @@ fn plan_term(gb: &Gradebook, c: TermCmd) -> Result<Planned> {
             id: resolve_term(gb, &term)?,
             name,
         }),
+        TermCmd::Year { term, year } => Planned::plain(Command::SetTermYear {
+            id: resolve_term(gb, &term)?,
+            year,
+        }),
         TermCmd::Rm { term } => Planned::plain(Command::RemoveTerm {
             id: resolve_term(gb, &term)?,
         }),
@@ -569,6 +573,7 @@ fn plan_gpa(gb: &Gradebook, c: GpaCmd) -> Result<Planned> {
 const CLI_PATHS: &[(&str, &str)] = &[
     ("add_term", "term add"),
     ("rename_term", "term rename"),
+    ("set_term_year", "term year"),
     ("remove_term", "term rm"),
     ("add_course", "course add"),
     ("update_course", "course update"),

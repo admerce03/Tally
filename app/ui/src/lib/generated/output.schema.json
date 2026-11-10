@@ -1015,6 +1015,33 @@
       ],
       "type": "object"
     },
+    "NeededScore": {
+      "description": "The score one remaining assignment needs under the uniform solve.",
+      "properties": {
+        "assignment_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "needed_points": {
+          "description": "Raw points needed (needed percent x points_possible / 100). 0 when Secured. None when unreachable even at the search cap or nothing to solve.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "points_possible": {
+          "description": "The assignment's original points possible (before assignment curves).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "assignment_id",
+        "points_possible"
+      ],
+      "type": "object"
+    },
     "Override": {
       "oneOf": [
         {
@@ -1262,6 +1289,13 @@
             "null"
           ]
         },
+        "needed_scores": {
+          "description": "One entry per remaining assignment, in course list order; empty when there is no remaining work.",
+          "items": {
+            "$ref": "#/$defs/NeededScore"
+          },
+          "type": "array"
+        },
         "remaining_count": {
           "description": "Ungraded, non-excused, non-locked assignments with points possible > 0.",
           "format": "uint",
@@ -1279,7 +1313,8 @@
       "required": [
         "status",
         "target_percent",
-        "remaining_count"
+        "remaining_count",
+        "needed_scores"
       ],
       "type": "object"
     },
@@ -1353,6 +1388,15 @@
         },
         "name": {
           "type": "string"
+        },
+        "year": {
+          "default": null,
+          "description": "Academic year the term belongs to (e.g. 2026), set by the user; used to group and sort\nterms. `None` when not set.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1411,6 +1455,14 @@
         },
         "name": {
           "type": "string"
+        },
+        "year": {
+          "description": "Academic year, when set (`set_term_year`).",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [

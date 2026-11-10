@@ -72,6 +72,10 @@ impl Gradebook {
 pub struct Term {
     pub id: TermId,
     pub name: String,
+    /// Academic year the term belongs to (e.g. 2026), set by the user; used to group and sort
+    /// terms. `None` when not set.
+    #[serde(default)]
+    pub year: Option<i32>,
     #[serde(default)]
     pub courses: Vec<Course>,
 }
@@ -81,6 +85,7 @@ impl Term {
         Self {
             id,
             name: name.into(),
+            year: None,
             courses: Vec::new(),
         }
     }

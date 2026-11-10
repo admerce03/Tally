@@ -13,6 +13,10 @@ command: "rename_term"
 id: string
 name: string
 } | {
+command: "set_term_year"
+id: string
+year?: (number | null)
+} | {
 command: "remove_term"
 id: string
 } | {
@@ -312,6 +316,11 @@ export interface Term {
 courses?: Course[]
 id: string
 name: string
+/**
+ * Academic year the term belongs to (e.g. 2026), set by the user; used to group and sort
+ * terms. `None` when not set.
+ */
+year?: (number | null)
 }
 export interface Course {
 categories?: Category[]

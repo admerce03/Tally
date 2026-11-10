@@ -97,6 +97,53 @@ pub fn prune_overrides(scenarios: &mut [Scenario], removed: &Removed) {
     }
 }
 
+/// Add an override to a scenario's list. A `Set*` override replaces the existing override of
+/// the same variant for the same target in place (so its position, and therefore replay order,
+/// is kept); otherwise it is appended. `AddAssignment` always appends.
+pub fn upsert_override(list: &mut Vec<Override>, o: Override) {
+    match list.iter_mut().find(|e| same_target(e, &o)) {
+        Some(slot) => *slot = o,
+        None => list.push(o),
+    }
+}
+
+/// Same `Set*` variant aimed at the same assignment or course.
+fn same_target(a: &Override, b: &Override) -> bool {
+    use Override::*;
+    match (a, b) {
+        (
+            SetScore {
+                assignment_id: x, ..
+            },
+            SetScore {
+                assignment_id: y, ..
+            },
+        )
+        | (
+            SetStatus {
+                assignment_id: x, ..
+            },
+            SetStatus {
+                assignment_id: y, ..
+            },
+        )
+        | (
+            SetAssignmentCurves {
+                assignment_id: x, ..
+            },
+            SetAssignmentCurves {
+                assignment_id: y, ..
+            },
+        ) => x == y,
+        (SetCourseCurve { course_id: x, .. }, SetCourseCurve { course_id: y, .. })
+        | (SetGpaStatus { course_id: x, .. }, SetGpaStatus { course_id: y, .. })
+        | (SetOfficialLetter { course_id: x, .. }, SetOfficialLetter { course_id: y, .. }) => {
+            x == y
+        }
+        _ => false,
+    }
+}
+
 /// True if any scenario's hypothetical assignment uses this id.
 pub fn hypothetical_id_in_use(gb: &Gradebook, id: AssignmentId) -> bool {
     gb.scenarios.iter().any(|s| {
@@ -382,6 +429,99 @@ mod tests {
         assert_eq!(out.assignment(f.graded).unwrap().score, Some(90.0));
         let c = out.course(f.course).unwrap();
         approx(current_grade(c, CurveMode::Apply).unwrap(), 72.5 + 2.0);
+    }
+
+    #[test]
+    fn upsert_replaces_same_kind_and_target_in_place() {
+        let f = fx();
+        let other = AssignmentId(uid());
+        let mut list = Vec::new();
+        upsert_override(
+            &mut list,
+            Override::SetScore {
+                assignment_id: f.pending,
+                score: Some(50.0),
+            },
+        );
+        upsert_override(
+            &mut list,
+            Override::SetStatus {
+                assignment_id: f.pending,
+                status: AssignmentStatus::Missing,
+            },
+        );
+        upsert_override(
+            &mut list,
+            Override::SetScore {
+                assignment_id: other,
+                score: Some(1.0),
+            },
+        );
+        // Same kind, same assignment: replaced where it was.
+        upsert_override(
+            &mut list,
+            Override::SetScore {
+                assignment_id: f.pending,
+                score: Some(100.0),
+            },
+        );
+        assert_eq!(list.len(), 3);
+        assert_eq!(
+            list[0],
+            Override::SetScore {
+                assignment_id: f.pending,
+                score: Some(100.0),
+            }
+        );
+        assert!(matches!(list[1], Override::SetStatus { .. }));
+
+        let curve = |add_points| Override::SetCourseCurve {
+            course_id: f.course,
+            curve: CourseCurve {
+                add_points,
+                cutoff_shift: 0.0,
+            },
+        };
+        upsert_override(&mut list, curve(2.0));
+        upsert_override(&mut list, curve(5.0));
+        assert_eq!(list.len(), 4);
+        assert_eq!(list[3], curve(5.0));
+
+        for kind in [
+            Override::SetAssignmentCurves {
+                assignment_id: f.graded,
+                curves: vec![],
+            },
+            Override::SetGpaStatus {
+                course_id: f.course,
+                gpa_status: GpaStatus::PassFail,
+            },
+            Override::SetOfficialLetter {
+                course_id: f.course,
+                letter: None,
+            },
+        ] {
+            upsert_override(&mut list, kind.clone());
+            let n = list.len();
+            upsert_override(&mut list, kind);
+            assert_eq!(list.len(), n);
+        }
+    }
+
+    #[test]
+    fn upsert_always_appends_hypothetical_assignments() {
+        let f = fx();
+        let mut list = Vec::new();
+        for _ in 0..2 {
+            upsert_override(
+                &mut list,
+                Override::AddAssignment {
+                    category_id: f.cat,
+                    assignment: Assignment::new(AssignmentId(uid()), "hyp", 10.0),
+                },
+            );
+        }
+        assert_eq!(list.len(), 2);
     }
 
     #[test]

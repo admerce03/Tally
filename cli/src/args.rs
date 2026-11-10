@@ -83,10 +83,22 @@ pub struct ResolveArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum TermCmd {
-    Add { name: String },
+    Add {
+        name: String,
+    },
     List,
-    Rename { term: String, name: String },
-    Rm { term: String },
+    Rename {
+        term: String,
+        name: String,
+    },
+    /// Set the academic year a term belongs to (omit the year to clear it).
+    Year {
+        term: String,
+        year: Option<i32>,
+    },
+    Rm {
+        term: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]

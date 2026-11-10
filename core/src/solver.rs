@@ -27,7 +27,18 @@ pub enum SolveStatus {
     Unreachable { needed: Option<f64> },
 }
 
+/// The score one remaining assignment needs under the uniform solve.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct NeededScore {
+    pub assignment_id: AssignmentId,
+    /// The assignment's original points possible (before assignment curves).
+    pub points_possible: f64,
+    /// Raw points needed (needed percent x points_possible / 100). 0 when Secured. None when unreachable even at the search cap or nothing to solve.
+    pub needed_points: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SolveResult {
     pub status: SolveStatus,
@@ -36,6 +47,8 @@ pub struct SolveResult {
     pub remaining_count: usize,
     /// Final grade when remaining work scores `needed` (Secured: grade at 0%).
     pub grade_at_needed: Option<f64>,
+    /// One entry per remaining assignment, in course list order; empty when there is no remaining work.
+    pub needed_scores: Vec<NeededScore>,
 }
 
 /// A target grade: `{"percent": 90}` (0-100) or `{"letter": "A-"}` (uses the course cutoff).
@@ -128,13 +141,29 @@ pub fn build_locked(course: &Course, list: &[LockedScore]) -> Result<Locked, Cor
 ///
 /// Grade is monotonic in the fill, so a binary search on [0, 1000] to 1e-6 is exact enough.
 pub fn solve(course: &Course, target_pct: f64, locked: &Locked, mode: CurveMode) -> SolveResult {
-    let remaining_count = remaining_assignments(course, locked).len();
+    let remaining = remaining_assignments(course, locked);
+    let remaining_count = remaining.len();
     let grade = |fill: f64| final_grade_with(course, fill, mode, locked);
-    let result = |status, grade_at_needed| SolveResult {
-        status,
-        target_percent: target_pct,
-        remaining_count,
-        grade_at_needed,
+    let result = |status: SolveStatus, grade_at_needed| {
+        let percent = match status {
+            SolveStatus::Secured => Some(0.0),
+            SolveStatus::OnTrack { needed } => Some(needed),
+            SolveStatus::Unreachable { needed } => needed,
+        };
+        SolveResult {
+            status,
+            target_percent: target_pct,
+            remaining_count,
+            grade_at_needed,
+            needed_scores: remaining
+                .iter()
+                .map(|a| NeededScore {
+                    assignment_id: a.id,
+                    points_possible: a.points_possible,
+                    needed_points: percent.map(|p| p * a.points_possible / 100.0),
+                })
+                .collect(),
+        }
     };
     let meets = |g: Option<f64>| g.is_some_and(|g| g >= target_pct - EPS);
 
@@ -295,6 +324,71 @@ mod tests {
         let r = solve(&c, 80.0, &locked, CurveMode::Ignore);
         assert!((needed(&r) - 60.0).abs() < 1e-5);
         assert_eq!(r.remaining_count, 1);
+    }
+
+    #[test]
+    fn needed_scores_proportional() {
+        let (a, b) = (asg(20.0, None), asg(80.0, None));
+        let (aid, bid) = (a.id, b.id);
+        let c = course(vec![cat(100.0, 0, vec![asg(100.0, Some(50.0)), a, b])]);
+        // 50 earned of 100 + 100 remaining; target 70 over 200 -> 140 pts -> 90 of 100 -> 90%.
+        let r = solve(&c, 70.0, &Locked::new(), CurveMode::Ignore);
+        let n = needed(&r);
+        assert_eq!(r.needed_scores.len(), 2);
+        assert_eq!(r.needed_scores[0].assignment_id, aid);
+        assert_eq!(r.needed_scores[1].assignment_id, bid);
+        approx(r.needed_scores[0].points_possible, 20.0);
+        assert!((r.needed_scores[0].needed_points.unwrap() - n * 0.2).abs() < 1e-5);
+        assert!((r.needed_scores[1].needed_points.unwrap() - n * 0.8).abs() < 1e-5);
+    }
+
+    #[test]
+    fn needed_scores_secured_all_zero() {
+        let r = solve(&simple(), 40.0, &Locked::new(), CurveMode::Ignore);
+        assert_eq!(r.needed_scores.len(), 1);
+        approx(r.needed_scores[0].needed_points.unwrap(), 0.0);
+    }
+
+    #[test]
+    fn needed_scores_unreachable_exceeds_possible() {
+        let r = solve(&simple(), 95.0, &Locked::new(), CurveMode::Ignore);
+        let p = r.needed_scores[0].needed_points.unwrap();
+        assert!(p > 50.0 && (p - 55.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn needed_scores_unreachable_none_at_cap() {
+        let c = course(vec![
+            cat(1.0, 0, vec![asg(10.0, None)]),
+            cat(99.0, 0, vec![asg(10.0, Some(0.0))]),
+        ]);
+        let r = solve(&c, 100.0, &Locked::new(), CurveMode::Ignore);
+        assert_eq!(r.needed_scores.len(), 1);
+        assert_eq!(r.needed_scores[0].needed_points, None);
+    }
+
+    #[test]
+    fn needed_scores_empty_without_remaining_work() {
+        let c = course(vec![cat(100.0, 0, vec![asg(100.0, Some(80.0))])]);
+        assert!(
+            solve(&c, 90.0, &Locked::new(), CurveMode::Ignore)
+                .needed_scores
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn needed_scores_exclude_locked() {
+        let a = asg(50.0, None);
+        let b = asg(50.0, None);
+        let (aid, bid) = (a.id, b.id);
+        let c = course(vec![cat(100.0, 0, vec![a, b])]);
+        let mut locked = Locked::new();
+        locked.insert(aid, 50.0);
+        let r = solve(&c, 80.0, &locked, CurveMode::Ignore);
+        assert_eq!(r.needed_scores.len(), 1);
+        assert_eq!(r.needed_scores[0].assignment_id, bid);
+        assert!((r.needed_scores[0].needed_points.unwrap() - 30.0).abs() < 1e-4);
     }
 
     #[test]

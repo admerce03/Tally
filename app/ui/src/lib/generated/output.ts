@@ -119,6 +119,10 @@ export interface TermSummary {
 courses: CourseSummary[]
 id: string
 name: string
+/**
+ * Academic year, when set (`set_term_year`).
+ */
+year?: (number | null)
 }
 export interface CourseSummary {
 code?: (string | null)
@@ -247,11 +251,29 @@ export interface SolveResult {
  */
 grade_at_needed?: (number | null)
 /**
+ * One entry per remaining assignment, in course list order; empty when there is no remaining work.
+ */
+needed_scores: NeededScore[]
+/**
  * Ungraded, non-excused, non-locked assignments with points possible > 0.
  */
 remaining_count: number
 status: SolveStatus
 target_percent: number
+}
+/**
+ * The score one remaining assignment needs under the uniform solve.
+ */
+export interface NeededScore {
+assignment_id: string
+/**
+ * Raw points needed (needed percent x points_possible / 100). 0 when Secured. None when unreachable even at the search cap or nothing to solve.
+ */
+needed_points?: (number | null)
+/**
+ * The assignment's original points possible (before assignment curves).
+ */
+points_possible: number
 }
 export interface ImpactEntry {
 assignment_id: string
@@ -383,6 +405,11 @@ export interface Term {
 courses?: Course[]
 id: string
 name: string
+/**
+ * Academic year the term belongs to (e.g. 2026), set by the user; used to group and sort
+ * terms. `None` when not set.
+ */
+year?: (number | null)
 }
 export interface Course {
 categories?: Category[]
