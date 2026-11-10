@@ -6,11 +6,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::analysis::{self, ImpactEntry, LeverageReport, TrendPoint};
 use crate::error::CoreError;
 use crate::gpa::{CumulativeGpaReport, TermGpaReport};
-use crate::grade;
+use crate::grade::{self, CategoryBreakdown};
 use crate::ids::{AssignmentId, CategoryId, CourseId, ScenarioId, TermId};
 use crate::model::{
-    Assignment, AssignmentCurve, AssignmentStatus, Category, Course, CurveMode, GpaScale,
-    GpaStatus, Gradebook, Letter, LetterCutoffs, Override, Scenario, Term,
+    Assignment, AssignmentCurve, AssignmentStatus, Category, Course, CourseCurve, CurveMode,
+    GpaScale, GpaStatus, Gradebook, Letter, LetterCutoffs, Override, Scenario, Term,
 };
 use crate::scenario::{self, ScenarioColumn};
 use crate::solver::{self, LockedScore, SolveResult, TargetSpec};
@@ -159,8 +159,12 @@ pub enum Command {
     },
     /// List all terms with their courses (ids, names, credits). Start here to discover ids; use show_course for categories and assignments.
     ListTerms,
-    /// Show one course in full: settings, curves, cutoffs, categories and assignments with their ids.
-    ShowCourse { course_id: CourseId },
+    /// Show one course in full: settings, curves, cutoffs, categories and assignments with their ids, plus derived per-assignment flags (remaining, counts_as_graded, dropped, hypothetical). With `scenario_id`, shows the course as that what-if scenario sees it.
+    ShowCourse {
+        course_id: CourseId,
+        #[serde(default)]
+        scenario_id: Option<ScenarioId>,
+    },
     /// Current grade (renormalized over categories with graded work) and projected grade (full weights, ungraded work as 0), as percents 0-100 with letters. Curves apply unless `curve_mode` is ignore.
     CourseGrade {
         course_id: CourseId,
@@ -393,6 +397,7 @@ impl Command {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CourseSummary {
     pub id: CourseId,
     pub name: String,
@@ -401,6 +406,7 @@ pub struct CourseSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TermSummary {
     pub id: TermId,
     pub name: String,
@@ -408,6 +414,7 @@ pub struct TermSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CourseGradeReport {
     pub course_id: CourseId,
     pub curve_mode: CurveMode,
@@ -417,6 +424,92 @@ pub struct CourseGradeReport {
     /// Full weights, remaining work as 0.
     pub projected: Option<f64>,
     pub projected_letter: Option<Letter>,
+    /// How the current grade is made up, per category (course order).
+    pub categories: Vec<CategoryBreakdown>,
+}
+
+/// An assignment plus flags derived by core, so adapters never re-implement grade rules.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct AssignmentView {
+    #[serde(flatten)]
+    pub assignment: Assignment,
+    /// Unscored work that still counts as remaining (solver, leverage).
+    pub remaining: bool,
+    /// Counted in the current grade (scored, or missing = 0; never excused).
+    pub counts_as_graded: bool,
+    /// Dropped by the category's drop-lowest rule in the current grade (curves applied).
+    pub dropped: bool,
+    /// Added by the scenario being viewed (never true without a scenario).
+    pub hypothetical: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct CategoryView {
+    pub id: CategoryId,
+    pub name: String,
+    pub weight: f64,
+    pub drop_lowest: u32,
+    pub assignments: Vec<AssignmentView>,
+}
+
+/// A course with derived flags on every assignment (output of `show_course`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct CourseView {
+    pub id: CourseId,
+    pub name: String,
+    pub code: Option<String>,
+    pub credits: f64,
+    pub cutoffs: LetterCutoffs,
+    pub curve: CourseCurve,
+    pub target: Option<f64>,
+    pub gpa_status: GpaStatus,
+    pub official_letter: Option<Letter>,
+    pub categories: Vec<CategoryView>,
+}
+
+impl CourseView {
+    /// Flags are computed with curves applied (the displayed grade).
+    pub fn new(course: &Course, hypothetical: &std::collections::HashSet<AssignmentId>) -> Self {
+        let categories = course
+            .categories
+            .iter()
+            .map(|cat| {
+                let dropped = grade::dropped_assignments(cat, CurveMode::Apply);
+                CategoryView {
+                    id: cat.id,
+                    name: cat.name.clone(),
+                    weight: cat.weight,
+                    drop_lowest: cat.drop_lowest,
+                    assignments: cat
+                        .assignments
+                        .iter()
+                        .map(|a| AssignmentView {
+                            assignment: a.clone(),
+                            remaining: grade::is_remaining(a),
+                            counts_as_graded: grade::counts_as_graded(a),
+                            dropped: dropped.contains(&a.id),
+                            hypothetical: hypothetical.contains(&a.id),
+                        })
+                        .collect(),
+                }
+            })
+            .collect();
+        Self {
+            id: course.id,
+            name: course.name.clone(),
+            code: course.code.clone(),
+            credits: course.credits,
+            cutoffs: course.cutoffs.clone(),
+            curve: course.curve,
+            target: course.target,
+            gpa_status: course.gpa_status,
+            official_letter: course.official_letter,
+            categories,
+        }
+    }
 }
 
 /// What an Add* command created.
@@ -465,6 +558,7 @@ fn created(kind: EntityKind, id: uuid::Uuid) -> CommandOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "result", rename_all = "snake_case")]
 pub enum CommandOutput {
     Done,
@@ -477,7 +571,7 @@ pub enum CommandOutput {
         terms: Vec<TermSummary>,
     },
     Course {
-        course: Box<Course>,
+        course: Box<CourseView>,
     },
     CourseGrade {
         report: CourseGradeReport,
@@ -844,7 +938,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             Ok(CommandOutput::Done)
         }
         Command::SetCutoffs { course_id, cutoffs } => {
-            for (_, v) in &cutoffs.entries {
+            for v in cutoffs.entries.iter().map(|e| &e.min) {
                 finite("cutoff", *v)?;
             }
             gb.course_mut(course_id)
@@ -865,7 +959,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                 .ok_or(CoreError::UnknownCourse(course_id.0))?;
             match value {
                 Some(v) => course.cutoffs.set(letter, v),
-                None => course.cutoffs.entries.retain(|(l, _)| *l != letter),
+                None => course.cutoffs.entries.retain(|e| e.letter != letter),
             }
             Ok(CommandOutput::Done)
         }
@@ -889,12 +983,20 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                 })
                 .collect(),
         }),
-        Command::ShowCourse { course_id } => {
-            let course = gb
+        Command::ShowCourse {
+            course_id,
+            scenario_id,
+        } => {
+            let view = scenario::view(gb, scenario_id)?;
+            let course = view
                 .course(course_id)
                 .ok_or(CoreError::UnknownCourse(course_id.0))?;
+            let hypothetical = match scenario_id {
+                Some(id) => scenario::hypothetical_ids(scenario::find_scenario(gb, id)?),
+                None => Default::default(),
+            };
             Ok(CommandOutput::Course {
-                course: Box::new(course.clone()),
+                course: Box::new(CourseView::new(course, &hypothetical)),
             })
         }
         Command::CourseGrade {
@@ -917,6 +1019,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                     projected,
                     projected_letter: projected
                         .map(|g| grade::course_letter(course, g, curve_mode)),
+                    categories: grade::category_breakdown(course, curve_mode),
                 },
             })
         }
@@ -1054,7 +1157,7 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             })
         }
         Command::SetGpaScale { scale } => {
-            for (_, v) in &scale.points {
+            for v in scale.points.iter().map(|e| &e.points) {
                 points("gpa points", *v)?;
             }
             gb.scale = scale;
@@ -1183,12 +1286,143 @@ mod tests {
         assert_eq!(terms.len(), 1);
         assert_eq!(terms[0].id, t);
         assert_eq!(terms[0].courses[0].id, c);
-        let CommandOutput::Course { course } =
-            execute(&mut gb, Command::ShowCourse { course_id: c }).unwrap()
-        else {
+        let CommandOutput::Course { course } = execute(
+            &mut gb,
+            Command::ShowCourse {
+                course_id: c,
+                scenario_id: None,
+            },
+        )
+        .unwrap() else {
             panic!("wrong output")
         };
         assert_eq!(course.name, "Math");
+    }
+
+    #[test]
+    fn show_course_flags_and_scenario() {
+        let (mut gb, _, c, k) = setup();
+        let low = add_asg(&mut gb, k, 100.0, Some(50.0));
+        let high = add_asg(&mut gb, k, 100.0, Some(90.0));
+        let todo = add_asg(&mut gb, k, 100.0, None);
+        execute(
+            &mut gb,
+            Command::UpdateCategory {
+                id: k,
+                name: None,
+                weight: None,
+                drop_lowest: Some(1),
+            },
+        )
+        .unwrap();
+        let show = |gb: &mut Gradebook, scenario_id| {
+            let CommandOutput::Course { course } = execute(
+                gb,
+                Command::ShowCourse {
+                    course_id: c,
+                    scenario_id,
+                },
+            )
+            .unwrap() else {
+                panic!("wrong output")
+            };
+            course
+        };
+        let flags = |v: &CourseView, id: AssignmentId| {
+            v.categories
+                .iter()
+                .flat_map(|c| &c.assignments)
+                .find(|a| a.assignment.id == id)
+                .cloned()
+                .unwrap()
+        };
+        let real = show(&mut gb, None);
+        let (l, h, t) = (flags(&real, low), flags(&real, high), flags(&real, todo));
+        assert!(l.dropped && l.counts_as_graded && !l.remaining && !l.hypothetical);
+        assert!(!h.dropped && h.counts_as_graded);
+        assert!(t.remaining && !t.counts_as_graded && !t.dropped);
+
+        // Scenario: score the pending work and add a hypothetical assignment.
+        let sid = ScenarioId(uid());
+        execute(
+            &mut gb,
+            Command::CreateScenario {
+                id: sid,
+                name: "s".into(),
+            },
+        )
+        .unwrap();
+        let hyp_id = AssignmentId(uid());
+        let mut hyp = Assignment::new(hyp_id, "hyp", 100.0);
+        hyp.score = Some(10.0);
+        for overlay in [
+            Override::SetScore {
+                assignment_id: todo,
+                score: Some(95.0),
+            },
+            Override::AddAssignment {
+                category_id: k,
+                assignment: hyp,
+            },
+        ] {
+            execute(
+                &mut gb,
+                Command::AddOverride {
+                    scenario_id: sid,
+                    overlay,
+                },
+            )
+            .unwrap();
+        }
+        let before = gb.clone();
+        let view = show(&mut gb, Some(sid));
+        assert_eq!(gb, before, "viewing a scenario must not mutate real data");
+        let (t, y) = (flags(&view, todo), flags(&view, hyp_id));
+        assert!(!t.remaining && t.counts_as_graded && !t.hypothetical);
+        assert!(y.hypothetical && y.counts_as_graded);
+        // Hypothetical is lowest (10) and dropped; the 50 is no longer dropped.
+        assert!(y.dropped);
+        assert!(!flags(&view, low).dropped);
+        // Real view is unchanged and has no hypothetical rows.
+        let real = show(&mut gb, None);
+        assert!(
+            real.categories[0]
+                .assignments
+                .iter()
+                .all(|a| !a.hypothetical)
+        );
+        assert_eq!(real.categories[0].assignments.len(), 3);
+        assert!(
+            execute(
+                &mut gb,
+                Command::ShowCourse {
+                    course_id: c,
+                    scenario_id: Some(ScenarioId(uid()))
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn course_grade_report_has_breakdown() {
+        let (mut gb, _, c, k) = setup();
+        add_asg(&mut gb, k, 100.0, Some(80.0));
+        let CommandOutput::CourseGrade { report } = execute(
+            &mut gb,
+            Command::CourseGrade {
+                course_id: c,
+                curve_mode: CurveMode::Apply,
+                scenario_id: None,
+            },
+        )
+        .unwrap() else {
+            panic!("wrong output")
+        };
+        assert_eq!(report.categories.len(), 1);
+        assert_eq!(report.categories[0].category_id, k);
+        approx(report.categories[0].effective_weight, 100.0);
+        approx(report.categories[0].average.unwrap(), 80.0);
     }
 
     #[test]
@@ -1378,7 +1612,8 @@ mod tests {
             execute(
                 &mut gb,
                 Command::ShowCourse {
-                    course_id: CourseId(ghost)
+                    course_id: CourseId(ghost),
+                    scenario_id: None,
                 }
             ),
             Err(CoreError::UnknownCourse(ghost))

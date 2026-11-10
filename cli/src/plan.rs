@@ -192,8 +192,9 @@ fn plan_course(gb: &Gradebook, c: CourseCmd) -> Result<Planned> {
                 target,
             })
         }
-        CourseCmd::Show { course } => Planned::plain(Command::ShowCourse {
+        CourseCmd::Show { course, scenario } => Planned::plain(Command::ShowCourse {
             course_id: resolve_course(gb, &course)?,
+            scenario_id: scenario_opt(gb, &scenario)?,
         }),
         CourseCmd::Update {
             course,
@@ -253,7 +254,10 @@ fn plan_course(gb: &Gradebook, c: CourseCmd) -> Result<Planned> {
         CourseCmd::Cutoffs { course, pairs } => {
             let course_id = resolve_course(gb, &course)?;
             if pairs.is_empty() {
-                Planned::plain(Command::ShowCourse { course_id })
+                Planned::plain(Command::ShowCourse {
+                    course_id,
+                    scenario_id: None,
+                })
             } else {
                 Planned {
                     commands: cutoff_pairs(&pairs)?

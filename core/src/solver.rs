@@ -12,6 +12,7 @@ const SEARCH_MAX: f64 = 1000.0;
 const SEARCH_TOL: f64 = 1e-6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum SolveStatus {
     /// Target is met even if all remaining work scores 0.
@@ -27,6 +28,7 @@ pub enum SolveStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SolveResult {
     pub status: SolveStatus,
     pub target_percent: f64,

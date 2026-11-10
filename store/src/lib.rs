@@ -9,7 +9,7 @@ use tally_core::Gradebook;
 use thiserror::Error;
 
 /// Bumped when the stored JSON layout changes incompatibly.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -74,11 +74,46 @@ pub struct Store {
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Bring data stored at schema version `from` (older than `SCHEMA_VERSION`) up to date.
-/// Version 1 is the first layout, so there is nothing to convert yet; future layouts add
-/// one step per version here.
+///
+/// v1 -> v2: letter cutoffs and the GPA scale changed from `[letter, value]` pairs to
+/// `{letter, min}` / `{letter, points}` objects.
 fn migrate(from: i64, data: &str) -> Result<Gradebook, StoreError> {
     debug_assert!(from < SCHEMA_VERSION);
-    Ok(serde_json::from_str(data)?)
+    let mut value: serde_json::Value = serde_json::from_str(data)?;
+    if from < 2 {
+        migrate_v1_to_v2(&mut value);
+    }
+    Ok(serde_json::from_value(value)?)
+}
+
+/// Rewrite `[letter, n]` pair arrays in `list` into `{letter, <key>: n}` objects.
+fn pairs_to_objects(list: Option<&mut serde_json::Value>, key: &str) {
+    let Some(items) = list.and_then(|v| v.as_array_mut()) else {
+        return;
+    };
+    for item in items {
+        let converted = match item.as_array().map(Vec::as_slice) {
+            Some([letter, n]) => Some(serde_json::json!({ "letter": letter, key: n })),
+            _ => None,
+        };
+        if let Some(obj) = converted {
+            *item = obj;
+        }
+    }
+}
+
+fn migrate_v1_to_v2(root: &mut serde_json::Value) {
+    pairs_to_objects(root.pointer_mut("/scale/points"), "points");
+    let Some(terms) = root.get_mut("terms").and_then(|t| t.as_array_mut()) else {
+        return;
+    };
+    for course in terms
+        .iter_mut()
+        .filter_map(|t| t.get_mut("courses").and_then(|c| c.as_array_mut()))
+        .flatten()
+    {
+        pairs_to_objects(course.pointer_mut("/cutoffs/entries"), "min");
+    }
 }
 
 fn load_from(conn: &Connection) -> Result<Gradebook, StoreError> {
@@ -383,5 +418,29 @@ mod tests {
             .query_row("PRAGMA busy_timeout", [], |r| r.get(0))
             .unwrap();
         assert_eq!(ms, 5000);
+    }
+
+    #[test]
+    fn migrates_v1_pair_arrays() {
+        let mut store = Store::open_in_memory().unwrap();
+        let v1 = r#"{"terms":[{"id":"00000000-0000-0000-0000-000000000001","name":"T","courses":[
+            {"id":"00000000-0000-0000-0000-000000000002","name":"C","credits":3.0,
+             "cutoffs":{"entries":[["A",93.0],["F",0.0]]}}]}],
+            "scale":{"points":[["A",4.0],["F",0.0]]}}"#;
+        store
+            .conn
+            .execute(
+                "INSERT INTO gradebook (id, schema_version, data) VALUES (1, 1, ?1)",
+                params![v1],
+            )
+            .unwrap();
+        let gb = store.load().unwrap();
+        let course = &gb.terms[0].courses[0];
+        assert_eq!(course.cutoffs.get(tally_core::Letter::A), Some(93.0));
+        assert_eq!(gb.scale.get(tally_core::Letter::A), Some(4.0));
+        // Saving writes the current version and the new shape.
+        store.save(&gb).unwrap();
+        let reloaded = store.load().unwrap();
+        assert_eq!(reloaded, gb);
     }
 }

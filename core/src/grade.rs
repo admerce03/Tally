@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use crate::ids::AssignmentId;
+use serde::{Deserialize, Serialize};
+
+use crate::ids::{AssignmentId, CategoryId};
 use crate::model::{
     Assignment, AssignmentCurve, AssignmentStatus, Category, Course, CurveMode, Letter,
     LetterCutoffs,
@@ -147,11 +149,18 @@ pub fn kept_after_drops(items: &[Points], drop_n: u32) -> Vec<bool> {
     kept
 }
 
-fn category_average_ctx(cat: &Category, ctx: Ctx) -> Option<f64> {
-    let items: Vec<Points> = cat
-        .assignments
+/// Points of every non-ignored assignment of the category (list order), with its id.
+fn category_items(cat: &Category, ctx: Ctx) -> Vec<(AssignmentId, Points)> {
+    cat.assignments
         .iter()
-        .filter_map(|a| assignment_points(a, ctx))
+        .filter_map(|a| assignment_points(a, ctx).map(|p| (a.id, p)))
+        .collect()
+}
+
+fn category_average_ctx(cat: &Category, ctx: Ctx) -> Option<f64> {
+    let items: Vec<Points> = category_items(cat, ctx)
+        .into_iter()
+        .map(|(_, p)| p)
         .collect();
     let kept = kept_after_drops(&items, cat.drop_lowest);
     let (earned, possible) = items
@@ -160,6 +169,87 @@ fn category_average_ctx(cat: &Category, ctx: Ctx) -> Option<f64> {
         .filter(|(_, k)| **k)
         .fold((0.0, 0.0), |(e, p), (x, _)| (e + x.earned, p + x.possible));
     (possible > EPS).then(|| earned / possible * 100.0)
+}
+
+fn current_ctx_plain(mode: CurveMode) -> Ctx<'static> {
+    // A `'static` empty lock set: `Locked` is a `HashMap`, so keep one in a `OnceLock`.
+    static EMPTY: std::sync::OnceLock<Locked> = std::sync::OnceLock::new();
+    Ctx {
+        mode,
+        locked: EMPTY.get_or_init(Locked::new),
+        fill: None,
+    }
+}
+
+/// True if the assignment is counted in the current grade: not excused, and it has a score or
+/// is `Missing` (which counts as 0).
+pub fn counts_as_graded(a: &Assignment) -> bool {
+    a.status != AssignmentStatus::Excused
+        && (a.score.is_some() || a.status == AssignmentStatus::Missing)
+}
+
+/// Ids of the graded assignments dropped by the category's drop-lowest rule (current grade).
+pub fn dropped_assignments(cat: &Category, mode: CurveMode) -> Vec<AssignmentId> {
+    let items = category_items(cat, current_ctx_plain(mode));
+    let points: Vec<Points> = items.iter().map(|(_, p)| *p).collect();
+    let kept = kept_after_drops(&points, cat.drop_lowest);
+    items
+        .iter()
+        .zip(kept)
+        .filter(|(_, k)| !k)
+        .map(|((id, _), _)| *id)
+        .collect()
+}
+
+/// Per-category part of the current grade.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct CategoryBreakdown {
+    pub category_id: CategoryId,
+    pub name: String,
+    /// Configured weight.
+    pub weight: f64,
+    /// Share (percent 0-100) of the current grade this category carries after renormalizing
+    /// over categories with graded work; 0 if it is excluded (no graded work, or weight 0).
+    pub effective_weight: f64,
+    /// Current category average (percent) after curves and drops; `None` without graded work.
+    pub average: Option<f64>,
+    /// Graded assignments dropped by drop-lowest.
+    pub dropped: Vec<AssignmentId>,
+}
+
+/// Breakdown of the current grade by category, in course order.
+pub fn category_breakdown(course: &Course, mode: CurveMode) -> Vec<CategoryBreakdown> {
+    let ctx = current_ctx_plain(mode);
+    let averages: Vec<Option<f64>> = course
+        .categories
+        .iter()
+        .map(|c| category_average_ctx(c, ctx))
+        .collect();
+    let total: f64 = course
+        .categories
+        .iter()
+        .zip(&averages)
+        .filter(|(c, avg)| c.weight > 0.0 && avg.is_some())
+        .map(|(c, _)| c.weight)
+        .sum();
+    course
+        .categories
+        .iter()
+        .zip(averages)
+        .map(|(c, average)| CategoryBreakdown {
+            category_id: c.id,
+            name: c.name.clone(),
+            weight: c.weight,
+            effective_weight: if c.weight > 0.0 && average.is_some() && total > 0.0 {
+                c.weight / total * 100.0
+            } else {
+                0.0
+            },
+            average,
+            dropped: dropped_assignments(c, mode),
+        })
+        .collect()
 }
 
 /// Points-based category average (percent) over graded work, after curves and drops.
@@ -644,5 +734,86 @@ mod tests {
         };
         approx(projected_grade(&c, CurveMode::Apply).unwrap(), 5.0);
         approx(projected_grade(&c, CurveMode::Ignore).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn breakdown_renormalizes_effective_weights() {
+        let c = course(vec![
+            cat(50.0, 0, vec![graded(100.0, 80.0)]),
+            cat(30.0, 0, vec![asg(100.0, None)]),
+            cat(20.0, 0, vec![graded(100.0, 60.0)]),
+        ]);
+        let b = category_breakdown(&c, CurveMode::Apply);
+        approx(b[0].effective_weight, 50.0 / 70.0 * 100.0);
+        approx(b[1].effective_weight, 0.0);
+        assert_eq!(b[1].average, None);
+        approx(b[2].effective_weight, 20.0 / 70.0 * 100.0);
+        approx(b.iter().map(|x| x.effective_weight).sum::<f64>(), 100.0);
+        approx(b[0].average.unwrap(), 80.0);
+        approx(b[0].weight, 50.0);
+    }
+
+    #[test]
+    fn breakdown_with_no_graded_work_is_all_zero() {
+        let c = course(vec![
+            cat(60.0, 0, vec![asg(100.0, None)]),
+            cat(40.0, 0, vec![]),
+        ]);
+        let b = category_breakdown(&c, CurveMode::Apply);
+        assert!(
+            b.iter()
+                .all(|x| x.effective_weight == 0.0 && x.average.is_none())
+        );
+    }
+
+    #[test]
+    fn breakdown_dropped_matches_kept_after_drops() {
+        let low = graded(100.0, 40.0);
+        let mid = graded(100.0, 80.0);
+        let high = graded(100.0, 90.0);
+        let pending = asg(100.0, None);
+        let (low_id, pending_id) = (low.id, pending.id);
+        let c = course(vec![cat(100.0, 1, vec![mid, low, high, pending])]);
+        let b = category_breakdown(&c, CurveMode::Apply);
+        assert_eq!(b[0].dropped, vec![low_id]);
+        assert!(!b[0].dropped.contains(&pending_id));
+        approx(b[0].average.unwrap(), 85.0);
+        // Dropping nothing when fewer than N+1 graded items.
+        let one = course(vec![cat(100.0, 2, vec![graded(100.0, 70.0)])]);
+        assert!(
+            category_breakdown(&one, CurveMode::Apply)[0]
+                .dropped
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn breakdown_respects_curve_mode() {
+        let mut a = graded(100.0, 70.0);
+        a.curves = vec![AssignmentCurve::AddPoints(10.0)];
+        let c = course(vec![cat(100.0, 0, vec![a])]);
+        approx(
+            category_breakdown(&c, CurveMode::Apply)[0].average.unwrap(),
+            80.0,
+        );
+        approx(
+            category_breakdown(&c, CurveMode::Ignore)[0]
+                .average
+                .unwrap(),
+            70.0,
+        );
+    }
+
+    #[test]
+    fn counts_as_graded_rules() {
+        let mut a = asg(100.0, None);
+        assert!(!counts_as_graded(&a));
+        a.status = AssignmentStatus::Missing;
+        assert!(counts_as_graded(&a));
+        a.status = AssignmentStatus::Excused;
+        a.score = Some(50.0);
+        assert!(!counts_as_graded(&a));
+        a.status = AssignmentStatus::Graded;
+        assert!(counts_as_graded(&a));
     }
 }

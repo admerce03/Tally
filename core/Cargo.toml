@@ -9,9 +9,10 @@ name = "tally_core"
 
 [features]
 # Derive `schemars::JsonSchema` on Commands and their input types (used by the MCP adapter).
-schema = ["dep:schemars"]
+schema = ["dep:schemars", "dep:serde_json"]
 
 [dependencies]
+serde_json = { workspace = true, optional = true }
 schemars = { version = "1", features = ["chrono04", "uuid1"], optional = true }
 serde.workspace = true
 thiserror.workspace = true
@@ -20,3 +21,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+
+[[example]]
+name = "export_schema"
+required-features = ["schema"]

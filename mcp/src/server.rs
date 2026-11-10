@@ -13,6 +13,7 @@ use rmcp::{
     service::RequestContext,
 };
 use serde_json::{Map, Value};
+use tally_core::json::command_from_value;
 use tally_core::{Command, CommandOutput, CoreError, execute};
 use tally_store::{Store, StoreError};
 
@@ -88,34 +89,16 @@ impl TallyServer {
             return error_result(format!("unknown tool '{name}'"));
         }
         let mut args = arguments.unwrap_or_default();
-        if let Some(tool) = self.tools.iter().find(|t| t.name == name) {
-            let allowed: Vec<&str> = tool
-                .input_schema
-                .get("properties")
-                .and_then(Value::as_object)
-                .map(|p| p.keys().map(String::as_str).collect())
-                .unwrap_or_default();
-            let unknown: Vec<&str> = args
-                .keys()
-                .map(String::as_str)
-                .filter(|k| !allowed.contains(k))
-                .collect();
-            if !unknown.is_empty() {
-                return error_result(format!(
-                    "unknown argument(s) for '{name}': {}. Allowed: {}",
-                    unknown.join(", "),
-                    if allowed.is_empty() {
-                        "(none)".to_string()
-                    } else {
-                        allowed.join(", ")
-                    }
-                ));
-            }
+        // The tag is the tool name; callers may not smuggle in a different command.
+        if args.contains_key(TAG) {
+            return error_result(format!(
+                "unknown argument(s) for '{name}': {TAG}. The command is the tool name"
+            ));
         }
         args.insert(TAG.to_string(), Value::String(name.to_string()));
-        let command: Command = match serde_json::from_value(Value::Object(args)) {
+        let command: Command = match command_from_value(Value::Object(args)) {
             Ok(c) => c,
-            Err(e) => return error_result(format!("invalid arguments for '{name}': {e}")),
+            Err(e) => return error_result(e),
         };
         let result: Result<CommandOutput, CallError> = {
             let mut store = self.store.lock().unwrap_or_else(|p| p.into_inner());

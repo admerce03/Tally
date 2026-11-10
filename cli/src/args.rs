@@ -92,6 +92,9 @@ pub enum CourseCmd {
     },
     Show {
         course: String,
+        /// Show the course as this what-if scenario sees it.
+        #[arg(long)]
+        scenario: Option<String>,
     },
     Update {
         course: String,

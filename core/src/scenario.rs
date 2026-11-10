@@ -106,6 +106,18 @@ pub fn hypothetical_id_in_use(gb: &Gradebook, id: AssignmentId) -> bool {
     })
 }
 
+/// Ids of the assignments the scenario adds (hypothetical ones).
+pub fn hypothetical_ids(scenario: &Scenario) -> HashSet<AssignmentId> {
+    scenario
+        .overrides
+        .iter()
+        .filter_map(|o| match o {
+            Override::AddAssignment { assignment, .. } => Some(assignment.id),
+            _ => None,
+        })
+        .collect()
+}
+
 fn apply_override(gb: &mut Gradebook, o: &Override) -> Result<(), CoreError> {
     match o {
         Override::SetScore {
@@ -195,6 +207,7 @@ pub fn view(
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CompareCourse {
     pub course_id: CourseId,
     pub name: String,
@@ -205,6 +218,7 @@ pub struct CompareCourse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CompareTerm {
     pub term_id: TermId,
     pub name: String,
@@ -213,6 +227,7 @@ pub struct CompareTerm {
 
 /// One column of a comparison: the real data (`scenario_id: None`) or a scenario.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ScenarioColumn {
     pub scenario_id: Option<ScenarioId>,
     /// "real" for the baseline, else the scenario name.
