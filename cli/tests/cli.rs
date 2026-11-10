@@ -564,3 +564,22 @@ fn resolve_maps_to_core_command() {
     let out = db.run(&["resolve", "category", "Exams", "--json"]);
     assert_ne!(out.code, 0);
 }
+
+#[test]
+fn export_then_import_round_trips_into_another_db() {
+    let src = Db::new();
+    src.calc_course();
+    let exported = src.json(&["export"]);
+    assert_eq!(exported["result"], "gradebook");
+    let file = std::env::temp_dir().join(format!("tally-export-{}.json", std::process::id()));
+    std::fs::write(&file, exported["gradebook"].to_string()).expect("write export");
+
+    let dst = Db::new();
+    let imported = dst.json(&["import", file.to_str().expect("utf8 path")]);
+    let _ = std::fs::remove_file(&file);
+    assert_eq!(imported["result"], "done");
+    assert_eq!(dst.json(&["export"]), exported);
+
+    let missing = dst.run(&["import", "definitely-missing.json"]);
+    assert_ne!(missing.code, 0);
+}

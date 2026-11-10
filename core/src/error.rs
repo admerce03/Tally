@@ -3,6 +3,8 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum CoreError {
+    #[error("command '{tag}' is not a mutation and cannot be applied as an op")]
+    NotAMutation { tag: &'static str },
     #[error("unknown term {0}")]
     UnknownTerm(Uuid),
     #[error("unknown course {0}")]

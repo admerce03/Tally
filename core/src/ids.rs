@@ -33,3 +33,5 @@ id_type!(CourseId);
 id_type!(CategoryId);
 id_type!(AssignmentId);
 id_type!(ScenarioId);
+id_type!(DeviceId);
+id_type!(OpId);

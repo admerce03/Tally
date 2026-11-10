@@ -51,8 +51,18 @@ pub enum Top {
     Trends(AnalysisArgs),
     /// Final-grade change per 10% scored on each remaining assignment.
     Leverage(LeverageArgs),
+    /// Replace the whole gradebook with the contents of an exported JSON file.
+    Import(ImportArgs),
+    /// Print the whole gradebook as JSON (backup; re-importable).
+    Export,
     /// Resolve a name, code or UUID (prefix) to an id.
     Resolve(ResolveArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ImportArgs {
+    /// Path to a JSON file produced by `grades export`.
+    pub file: PathBuf,
 }
 
 #[derive(Debug, clap::Args)]

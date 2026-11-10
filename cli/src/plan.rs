@@ -138,6 +138,14 @@ pub fn plan(gb: &Gradebook, top: Top) -> Result<Planned> {
             curve_mode: mode(a.no_curve),
             scenario_id: scenario_opt(gb, &a.scenario)?,
         }),
+        Top::Import(a) => {
+            let text = std::fs::read_to_string(&a.file)
+                .with_context(|| format!("could not read {}", a.file.display()))?;
+            let gradebook: Gradebook = serde_json::from_str(&text)
+                .with_context(|| format!("{} is not a valid gradebook export", a.file.display()))?;
+            Planned::plain(Command::ImportGradebook { gradebook })
+        }
+        Top::Export => Planned::plain(Command::ExportGradebook),
         Top::Resolve(r) => Planned::plain(Command::Resolve {
             kind: r.kind,
             reference: r.reference,
@@ -593,6 +601,8 @@ const CLI_PATHS: &[(&str, &str)] = &[
     ("set_gpa_scale", "gpa scale"),
     ("set_gpa_scale_entry", "gpa scale"),
     ("show_gpa_scale", "gpa scale"),
+    ("import_gradebook", "import"),
+    ("export_gradebook", "export"),
     ("resolve", "resolve"),
 ];
 

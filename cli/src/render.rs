@@ -101,6 +101,9 @@ fn table(header: &[&str], rows: &[Vec<String>]) -> String {
 pub fn render(out: &CommandOutput) -> String {
     match out {
         CommandOutput::Done => "ok".to_string(),
+        CommandOutput::Gradebook { gradebook } => {
+            serde_json::to_string_pretty(gradebook).unwrap_or_else(|e| format!("error: {e}"))
+        }
         CommandOutput::Created { kind, id: new_id } => {
             format!("added {} {}", kind.as_str(), id(*new_id))
         }

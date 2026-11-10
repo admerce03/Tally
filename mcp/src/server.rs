@@ -14,8 +14,8 @@ use rmcp::{
 };
 use serde_json::{Map, Value};
 use tally_core::json::command_from_value;
-use tally_core::{Command, CommandOutput, CoreError, execute};
-use tally_store::{Store, StoreError};
+use tally_core::{Command, CommandOutput, CoreError};
+use tally_store::{Store, StoreError, now_ms};
 
 use crate::tools::{TAG, build_tools};
 
@@ -102,11 +102,7 @@ impl TallyServer {
         };
         let result: Result<CommandOutput, CallError> = {
             let mut store = self.store.lock().unwrap_or_else(|p| p.into_inner());
-            store.transact(|gb| {
-                let mutation = command.is_mutation();
-                let out = execute(gb, command)?;
-                Ok((out, mutation))
-            })
+            store.transact(now_ms(), |tx| Ok(tx.execute(command)?))
         };
         match result {
             Ok(out) => match serde_json::to_value(&out) {

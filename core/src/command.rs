@@ -258,6 +258,10 @@ pub enum Command {
     SetGpaScaleEntry { letter: Letter, points: f64 },
     /// Show the GPA scale (letter to grade points).
     ShowGpaScale,
+    /// Replace the whole gradebook (terms, courses, scale, scenarios) with the given one. Used for importing a backup and for bootstrapping sync.
+    ImportGradebook { gradebook: Gradebook },
+    /// Return the whole gradebook as JSON (read-only), suitable for backup or `import_gradebook`.
+    ExportGradebook,
     /// Resolve a name, code, UUID or unique UUID prefix to an id (read-only). `course` is required for `category` and narrows `assignment`; `scenario` also searches that scenario's hypothetical assignments. Ambiguous or unknown references are errors.
     Resolve {
         kind: EntityKind,
@@ -307,6 +311,8 @@ impl Command {
         "set_gpa_scale",
         "set_gpa_scale_entry",
         "show_gpa_scale",
+        "import_gradebook",
+        "export_gradebook",
         "resolve",
     ];
 
@@ -348,6 +354,8 @@ impl Command {
             Command::SetGpaScale { .. } => "set_gpa_scale",
             Command::SetGpaScaleEntry { .. } => "set_gpa_scale_entry",
             Command::ShowGpaScale => "show_gpa_scale",
+            Command::ImportGradebook { .. } => "import_gradebook",
+            Command::ExportGradebook => "export_gradebook",
             Command::Resolve { .. } => "resolve",
         }
     }
@@ -378,7 +386,8 @@ impl Command {
             | Command::AddOverride { .. }
             | Command::RemoveOverride { .. }
             | Command::SetGpaScale { .. }
-            | Command::SetGpaScaleEntry { .. } => true,
+            | Command::SetGpaScaleEntry { .. }
+            | Command::ImportGradebook { .. } => true,
             Command::ListTerms
             | Command::ShowCourse { .. }
             | Command::CourseGrade { .. }
@@ -391,6 +400,7 @@ impl Command {
             | Command::TermGpa { .. }
             | Command::CumulativeGpa { .. }
             | Command::ShowGpaScale
+            | Command::ExportGradebook
             | Command::Resolve { .. } => false,
         }
     }
@@ -602,6 +612,9 @@ pub enum CommandOutput {
     },
     GpaScale {
         scale: GpaScale,
+    },
+    Gradebook {
+        gradebook: Gradebook,
     },
     Resolved {
         kind: EntityKind,
@@ -963,6 +976,13 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
             }
             Ok(CommandOutput::Done)
         }
+        Command::ImportGradebook { gradebook } => {
+            *gb = gradebook;
+            Ok(CommandOutput::Done)
+        }
+        Command::ExportGradebook => Ok(CommandOutput::Gradebook {
+            gradebook: gb.clone(),
+        }),
         Command::ListTerms => Ok(CommandOutput::Terms {
             terms: gb
                 .terms

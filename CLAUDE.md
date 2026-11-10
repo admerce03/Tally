@@ -13,7 +13,7 @@ cli/     `grades` CLI (clap); every subcommand supports --json
 server/  Axum sync server + MCP over HTTP (home server)
 ```
 
-Only create crates when their milestone starts. Do NOT scaffold `server/` yet.
+Only create crates when their milestone starts. Milestone 4 creates `sync/` and `server/`.
 
 ## PARITY RULE (non-negotiable)
 
@@ -101,9 +101,9 @@ Create now: `app/` with `app/src-tauri` (crate `tally-app`, workspace member) an
 - **Frontend:** Svelte 5 + Vite + TypeScript, no UI kit; charts are hand-drawn SVG (no chart library). Tauri CLI comes from the `@tauri-apps/cli` npm dev dependency (no global install).
 - **Refresh:** after any mutation the UI re-queries what it shows; there is no client-side cache of grade math.
 
-## Next milestone: 4 — sync server + remote MCP (home server, Tailscale)
+## Current milestone: 4 — sync server + remote MCP (home server, Tailscale)
 
-Starts once milestone 3 is reviewed. Crates: `sync` (`tally-sync`, client) and `server` (`tally-server`, Axum).
+Crates: `sync` (`tally-sync`, client) and `server` (`tally-server`, Axum).
 
 - [ ] Core: pure sync model (op, HLC, deterministic replay), `ImportGradebook` command
 - [ ] Store: op log + device id + sync cursor; every mutation through `transact` appends an op

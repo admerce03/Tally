@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 use serde_json::Value;
 use tally_core::json::command_from_value;
-use tally_core::{CommandOutput, CoreError, execute as run_core};
-use tally_store::{Store, StoreError, resolve_db_path};
+use tally_core::{CommandOutput, CoreError};
+use tally_store::{Store, StoreError, now_ms, resolve_db_path};
 use tauri::State;
 
 /// Shared, lock-protected database handle held in Tauri managed state.
@@ -56,11 +56,7 @@ pub fn run_command(store: &Mutex<Store>, command: Value) -> Result<CommandOutput
     let command = command_from_value(command)?;
     let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
     store
-        .transact(|gb| {
-            let mutation = command.is_mutation();
-            let out = run_core(gb, command)?;
-            Ok((out, mutation))
-        })
+        .transact(now_ms(), |tx| Ok(tx.execute(command)?))
         .map_err(|e: RunError| e.message())
 }
 

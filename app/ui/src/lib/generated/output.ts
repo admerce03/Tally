@@ -47,6 +47,9 @@ result: "cumulative_gpa"
 result: "gpa_scale"
 scale: GpaScale
 } | {
+gradebook: Gradebook
+result: "gradebook"
+} | {
 id: string
 kind: EntityKind
 name: string
@@ -364,4 +367,58 @@ points: GpaEntry[]
 export interface GpaEntry {
 letter: Letter
 points: number
+}
+export interface Gradebook {
+scale?: GpaScale1
+scenarios?: Scenario[]
+terms?: Term[]
+}
+/**
+ * Letter to grade points (editable).
+ */
+export interface GpaScale1 {
+points: GpaEntry[]
+}
+export interface Term {
+courses?: Course[]
+id: string
+name: string
+}
+export interface Course {
+categories?: Category[]
+code?: (string | null)
+credits: number
+curve?: CourseCurve1
+cutoffs?: LetterCutoffs1
+gpa_status?: ("normal" | "pass_fail" | "withdrawn" | "retaken")
+id: string
+name: string
+official_letter?: (Letter | null)
+/**
+ * Target final grade as a percent (0-100).
+ */
+target?: (number | null)
+}
+export interface Category {
+assignments?: Assignment[]
+drop_lowest?: number
+id: string
+name: string
+weight: number
+}
+export interface CourseCurve1 {
+/**
+ * Added to the final percent.
+ */
+add_points?: number
+/**
+ * Subtracted from every letter cutoff.
+ */
+cutoff_shift?: number
+}
+/**
+ * Minimum percent for each letter. Letters without an entry are never awarded (F is the fallback).
+ */
+export interface LetterCutoffs1 {
+entries: CutoffEntry[]
 }

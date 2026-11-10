@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use clap::error::ErrorKind;
 use tally_core::CommandOutput;
-use tally_store::{Store, resolve_db_path};
+use tally_store::{Store, now_ms, resolve_db_path};
 
 use crate::args::Cli;
 
@@ -21,14 +21,13 @@ fn run(cli: Cli) -> Result<String> {
     let mut store =
         Store::open(&path).with_context(|| format!("could not open {}", path.display()))?;
     let command = cli.command;
-    let output = store.transact(|gb| -> Result<(CommandOutput, bool)> {
-        let planned = plan::plan(gb, command)?;
-        let mutation = planned.commands.iter().any(|c| c.is_mutation());
+    let output = store.transact(now_ms(), |tx| -> Result<CommandOutput> {
+        let planned = plan::plan(tx.gradebook(), command)?;
         let mut last = CommandOutput::Done;
         for cmd in planned.commands {
-            last = tally_core::execute(gb, cmd)?;
+            last = tx.execute(cmd)?;
         }
-        Ok((last, mutation))
+        Ok(last)
     })?;
     if cli.json {
         Ok(serde_json::to_string(&output)?)
