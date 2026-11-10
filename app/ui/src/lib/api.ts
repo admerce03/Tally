@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { Command } from "./generated/command";
 import type { CommandOutput } from "./generated/output";
 
@@ -7,12 +7,54 @@ export type { Command, CommandOutput };
 /** Narrow a CommandOutput to one `result` variant. */
 export type OutputOf<R extends CommandOutput["result"]> = Extract<CommandOutput, { result: R }>;
 
+const HTTP_BASE: string = import.meta.env.VITE_TALLY_API ?? "http://127.0.0.1:7878";
+
+/** Human-readable message from whatever a transport rejected with. */
+export function errMsg(e: unknown): string {
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object" && "error" in e) return String((e as { error: unknown }).error);
+  return String(e);
+}
+
+async function executeHttp(command: Command): Promise<CommandOutput> {
+  let res: Response;
+  try {
+    res = await fetch(`${HTTP_BASE}/api/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(command),
+    });
+  } catch {
+    throw new Error(`Cannot reach the Tally server at ${HTTP_BASE}`);
+  }
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error(`Server returned an invalid response (HTTP ${res.status})`);
+  }
+  if (body && typeof body === "object" && "error" in body) {
+    throw new Error(String((body as { error: unknown }).error));
+  }
+  if (!res.ok) throw new Error(`Server error (HTTP ${res.status})`);
+  return body as CommandOutput;
+}
+
 /**
- * Run one core Command through the Rust backend (same path as MCP). Rejects with the error
- * message string from core/store. The UI never computes grades: it renders what comes back.
+ * Run one core Command: through the Rust backend when inside Tauri (same path as MCP), otherwise
+ * over HTTP. Rejects with an Error carrying the core/store message. The UI never computes
+ * grades: it renders what comes back.
  */
 export async function execute(command: Command): Promise<CommandOutput> {
-  return (await invoke("execute", { command })) as CommandOutput;
+  if (isTauri()) {
+    try {
+      return (await invoke("execute", { command })) as CommandOutput;
+    } catch (e) {
+      throw new Error(errMsg(e));
+    }
+  }
+  return executeHttp(command);
 }
 
 /** A fresh UUID v4 for add/create commands (core never generates ids). */

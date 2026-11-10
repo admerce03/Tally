@@ -1,49 +1,46 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { execute, type OutputOf } from "./lib/api";
+  import { app, ask, query } from "./lib/app.svelte";
+  import CoursePage from "./lib/components/CoursePage.svelte";
+  import GpaPage from "./lib/components/GpaPage.svelte";
+  import HomePage from "./lib/components/HomePage.svelte";
+  import ScenariosPage from "./lib/components/ScenariosPage.svelte";
+  import Sidebar from "./lib/components/Sidebar.svelte";
+  import Toasts from "./lib/components/Toasts.svelte";
 
-  let terms = $state<OutputOf<"terms">["terms"]>([]);
-  let error = $state<string | null>(null);
-
-  async function refresh() {
-    try {
-      const out = await execute({ command: "list_terms" });
-      if (out.result === "terms") terms = out.terms;
-      error = null;
-    } catch (e) {
-      error = String(e);
-    }
-  }
-
-  onMount(refresh);
+  const scenarios = query(
+    () => () => ask({ command: "list_scenarios" }, "scenarios").then((o) => o.scenarios),
+  );
+  const active = $derived(scenarios.value?.find((s) => s.id === app.scenarioId) ?? null);
 </script>
 
 <div class="shell">
-  <aside class="sidebar" aria-label="Terms">
-    <h1>Tally</h1>
-    {#if error}
-      <p class="error">{error}</p>
-    {:else if terms.length === 0}
-      <p class="muted">No terms yet.</p>
-    {:else}
-      <ul>
-        {#each terms as term (term.id)}
-          <li>
-            <button type="button" class="term">{term.name}</button>
-            <ul>
-              {#each term.courses as course (course.id)}
-                <li><button type="button" class="course">{course.name}</button></li>
-              {/each}
-            </ul>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </aside>
+  <Sidebar />
   <main class="main">
-    <p class="muted">Select a course.</p>
+    {#if active}
+      <div class="banner" role="status">
+        <span>
+          Viewing through scenario <strong>{active.name}</strong>. Grades and GPA are hypothetical. Edits you make still
+          change real data.
+        </span>
+        <button type="button" class="btn sm" onclick={() => (app.scenarioId = null)}>Back to real data</button>
+      </div>
+    {/if}
+    <div class="content">
+      {#if app.route.name === "course"}
+        {#key app.route.id}
+          <CoursePage courseId={app.route.id} />
+        {/key}
+      {:else if app.route.name === "gpa"}
+        <GpaPage />
+      {:else if app.route.name === "scenarios"}
+        <ScenariosPage />
+      {:else}
+        <HomePage />
+      {/if}
+    </div>
   </main>
 </div>
+<Toasts />
 
 <style>
   .shell {
@@ -51,57 +48,25 @@
     grid-template-columns: 260px 1fr;
     height: 100%;
   }
-  .sidebar {
-    background: var(--bg-side);
-    border-right: 1px solid var(--border);
-    padding: 16px 12px;
-    overflow-y: auto;
-  }
   .main {
-    padding: 24px 32px;
     overflow-y: auto;
+    padding: 24px 32px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
-  h1 {
-    font-size: 15px;
-    font-weight: 600;
-    margin: 0 8px 16px;
-    letter-spacing: 0.02em;
-  }
-  ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  ul ul {
-    padding-left: 12px;
-  }
-  button {
-    display: block;
+  .content {
     width: 100%;
-    text-align: left;
-    background: none;
-    border: 0;
-    border-radius: var(--radius);
-    padding: 6px 8px;
-    cursor: pointer;
+    max-width: 960px;
+    margin: 0 auto;
   }
-  button:hover {
-    background: var(--hover);
-  }
-  .term {
-    font-weight: 600;
-    color: var(--fg-muted);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-top: 8px;
-  }
-  .muted {
-    color: var(--fg-muted);
-    margin: 0 8px;
-  }
-  .error {
-    color: #d33;
-    margin: 0 8px;
+  @media (max-width: 720px) {
+    .shell {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+    }
+    .main {
+      padding: 16px;
+    }
   }
 </style>
