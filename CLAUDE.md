@@ -108,9 +108,9 @@ Crates: `sync` (`tally-sync`, client) and `server` (`tally-server`, Axum).
 - [x] Core: pure sync model (op, HLC, deterministic replay), `ImportGradebook` command
 - [x] Store: op log + device id + sync cursor; every mutation through `transact` appends an op
 - [x] Server: `/api/execute`, `/api/sync/push`, `/api/sync/pull`, MCP over streamable HTTP at `/mcp`, bearer-token auth, health check
-- [ ] Clients: `grades sync`, app "Sync now" + background sync, MCP stdio unaffected
-- [ ] Tests: two-device convergence, concurrent field edits (LWW), delete vs update, offline then sync, idempotent push
-- [ ] README: home-server deployment (Tailscale, systemd/launchd examples as docs, not scripts) and Hermes Agent remote MCP config
+- [x] Clients: `grades sync`, app "Sync now" + background sync, MCP stdio unaffected
+- [x] Tests: two-device convergence, concurrent field edits (LWW), delete vs update, offline then sync, idempotent push
+- [x] README: home-server deployment (Tailscale, systemd/launchd examples as docs, not scripts) and Hermes Agent remote MCP config
 
 ### Sync design
 

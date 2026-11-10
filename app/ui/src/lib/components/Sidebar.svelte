@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { newId } from "../api";
+  import { newId, syncAvailable } from "../api";
   import { app, ask, mutate, navigate, query, toast } from "../app.svelte";
   import { parseNum } from "../format";
   import ConfirmButton from "./ConfirmButton.svelte";
+  import SyncControl from "./SyncControl.svelte";
 
   const terms = query(() => () => ask({ command: "list_terms" }, "terms").then((o) => o.terms));
   const scenarios = query(
@@ -238,6 +239,10 @@
       </section>
     {/each}
   </div>
+
+  {#if syncAvailable}
+    <SyncControl />
+  {/if}
 </aside>
 
 <style>

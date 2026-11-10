@@ -146,6 +146,7 @@ pub fn plan(gb: &Gradebook, top: Top) -> Result<Planned> {
             Planned::plain(Command::ImportGradebook { gradebook })
         }
         Top::Export => Planned::plain(Command::ExportGradebook),
+        Top::Sync(_) => bail!("sync is not a core command (handled before planning)"),
         Top::Resolve(r) => Planned::plain(Command::Resolve {
             kind: r.kind,
             reference: r.reference,

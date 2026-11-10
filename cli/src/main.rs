@@ -4,6 +4,7 @@
 mod args;
 mod plan;
 mod render;
+mod sync;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -20,7 +21,10 @@ fn run(cli: Cli) -> Result<String> {
     let path = resolve_db_path(cli.db)?;
     let mut store =
         Store::open(&path).with_context(|| format!("could not open {}", path.display()))?;
-    let command = cli.command;
+    let command = match cli.command {
+        crate::args::Top::Sync(a) => return sync::run(&mut store, a, cli.json),
+        other => other,
+    };
     let output = store.transact(now_ms(), |tx| -> Result<CommandOutput> {
         let planned = plan::plan(tx.gradebook(), command)?;
         let mut last = CommandOutput::Done;

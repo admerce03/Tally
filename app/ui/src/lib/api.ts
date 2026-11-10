@@ -61,3 +61,40 @@ export async function execute(command: Command): Promise<CommandOutput> {
 export function newId(): string {
   return crypto.randomUUID();
 }
+
+/** Outcome of a sync attempt: a report, or an error message. */
+export type SyncReport = {
+  pushed: number;
+  pulled: number;
+  skipped: [string, string][];
+  cursor: number;
+};
+export type LastSync = { at_ms: number; report: SyncReport | null; error: string | null };
+export type SyncStatus = {
+  configured: boolean;
+  server: string | null;
+  running: boolean;
+  last: LastSync | null;
+};
+
+/** Sync is a desktop-app feature (the Rust backend talks to the server). */
+export const syncAvailable: boolean = isTauri();
+
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return (await invoke(cmd, args)) as T;
+  } catch (e) {
+    throw new Error(errMsg(e));
+  }
+}
+
+export const syncStatus = () => call<SyncStatus>("sync_status");
+export const syncNow = () => call<SyncReport>("sync_now");
+export const syncConfigSet = (server: string, token: string) =>
+  call<void>("sync_config_set", { server, token });
+
+/** Subscribe to background sync results. Returns an unsubscribe function. */
+export async function onSyncFinished(handler: (last: LastSync) => void): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<LastSync>("sync-finished", (e) => handler(e.payload));
+}

@@ -7,20 +7,31 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use serde_json::Value;
+use std::path::PathBuf;
+use std::time::Duration;
 use tally_core::json::command_from_value;
 use tally_core::{CommandOutput, CoreError};
 use tally_store::{Store, StoreError, now_ms, resolve_db_path};
-use tauri::State;
+use tauri::{Emitter, Manager, State};
+
+mod sync_state;
+
+use sync_state::{LastSync, SyncState, SyncStatus, sync_configured};
+
+/// How often the background task syncs when a server is configured.
+const BACKGROUND_SYNC_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Shared, lock-protected database handle held in Tauri managed state.
 pub struct AppState {
     store: Arc<Mutex<Store>>,
+    sync: Arc<SyncState>,
 }
 
 impl AppState {
     pub fn new(store: Store) -> Self {
         Self {
             store: Arc::new(Mutex::new(store)),
+            sync: Arc::new(SyncState::default()),
         }
     }
 }
@@ -70,12 +81,82 @@ async fn execute(state: State<'_, AppState>, command: Value) -> Result<Value, St
     serde_json::to_value(out).map_err(|e| format!("could not encode result: {e}"))
 }
 
+fn sync_config_path() -> Result<PathBuf, String> {
+    tally_sync::config_path().map_err(|e| e.to_string())
+}
+
+/// Whether sync is configured, the server, and the outcome of the last attempt.
+#[tauri::command]
+fn sync_status(state: State<'_, AppState>) -> Result<SyncStatus, String> {
+    state.sync.status(&sync_config_path()?)
+}
+
+/// Save the server URL and token; an empty server removes the saved config.
+#[tauri::command]
+fn sync_config_set(server: String, token: String) -> Result<(), String> {
+    sync_state::config_set(&sync_config_path()?, &server, &token)
+}
+
+/// Run one sync round now. Network IO happens off the UI/command threads.
+#[tauri::command]
+async fn sync_now(state: State<'_, AppState>) -> Result<Value, String> {
+    let store = Arc::clone(&state.store);
+    let sync = Arc::clone(&state.sync);
+    let path = sync_config_path()?;
+    let last =
+        tauri::async_runtime::spawn_blocking(move || sync_configured(&sync, &store, &path, now_ms))
+            .await
+            .map_err(|e| format!("sync task failed: {e}"))??
+            .ok_or_else(|| "sync is not configured".to_string())?;
+    match last.error {
+        Some(e) => Err(e),
+        None => {
+            serde_json::to_value(last.report).map_err(|e| format!("could not encode result: {e}"))
+        }
+    }
+}
+
+/// One background round: skipped when unconfigured or already running; emits `sync-finished`.
+fn background_sync(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let outcome = match sync_config_path() {
+        Ok(path) => sync_configured(&state.sync, &state.store, &path, now_ms),
+        Err(e) => Err(e),
+    };
+    let payload = match outcome {
+        Ok(Some(last)) => last,
+        Ok(None) => return,
+        Err(e) if e == sync_state::ALREADY_RUNNING => return,
+        Err(e) => LastSync {
+            at_ms: now_ms(),
+            report: None,
+            error: Some(e),
+        },
+    };
+    let _ = app.emit("sync-finished", payload);
+}
+
 pub fn run() -> anyhow::Result<()> {
     let path = resolve_db_path(None).context("resolving database path")?;
     let store = Store::open(&path).with_context(|| format!("opening {}", path.display()))?;
     tauri::Builder::default()
         .manage(AppState::new(store))
-        .invoke_handler(tauri::generate_handler![execute])
+        .setup(|app| {
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                loop {
+                    background_sync(&handle);
+                    std::thread::sleep(BACKGROUND_SYNC_INTERVAL);
+                }
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            execute,
+            sync_status,
+            sync_config_set,
+            sync_now
+        ])
         .run(tauri::generate_context!())
         .context("running Tauri application")
 }

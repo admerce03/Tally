@@ -583,3 +583,116 @@ fn export_then_import_round_trips_into_another_db() {
     let missing = dst.run(&["import", "definitely-missing.json"]);
     assert_ne!(missing.code, 0);
 }
+
+/// Run `grades sync` with a clean sync environment and a config file path under our control.
+fn sync_cmd(db: &Db, config: &std::path::Path, args: &[&str]) -> Out {
+    let out = Command::new(env!("CARGO_BIN_EXE_grades"))
+        .arg("--db")
+        .arg(&db.path)
+        .args(args)
+        .env_remove("TALLY_DB")
+        .env_remove("TALLY_SERVER")
+        .env_remove("TALLY_TOKEN")
+        .env_remove("TALLY_TOKEN_FILE")
+        .env("TALLY_SYNC_CONFIG", config)
+        .output()
+        .expect("run grades");
+    Out {
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    }
+}
+
+#[test]
+fn sync_without_server_is_a_clear_json_error() {
+    let db = Db::new();
+    let config = db.path.with_extension("sync.json");
+    let out = sync_cmd(&db, &config, &["sync", "--json"]);
+    assert_ne!(out.code, 0);
+    let v: Value = serde_json::from_str(&out.stdout).expect("json error");
+    let msg = v["error"].as_str().expect("error string");
+    assert!(msg.contains("no sync server configured"), "{msg}");
+    assert!(msg.contains("TALLY_SERVER"), "{msg}");
+}
+
+#[test]
+fn sync_end_to_end_against_a_local_server() {
+    use std::sync::mpsc;
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let store = tally_store::Store::open_in_memory().expect("server store");
+            let state = tally_server::AppState::new(store, "secret-token".into(), vec![], vec![]);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind");
+            tx.send(listener.local_addr().expect("addr")).expect("send");
+            let _ = axum::serve(listener, tally_server::router(state)).await;
+        });
+    });
+    let addr = rx.recv().expect("server address");
+    let url = format!("http://{addr}");
+
+    let a = Db::new();
+    let b = Db::new();
+    let config = a.path.with_extension("sync.json");
+    a.ok(&["term", "add", "Fall"]);
+
+    // Wrong token is rejected.
+    let bad = sync_cmd(
+        &a,
+        &config,
+        &["sync", "--json", "--server", &url, "--token", "nope"],
+    );
+    assert_ne!(bad.code, 0);
+    assert!(bad.stdout.contains("error"), "{}", bad.stdout);
+
+    // Device A pushes (and saves its config); device B pulls via the saved-less flags.
+    let first = sync_cmd(
+        &a,
+        &config,
+        &[
+            "sync",
+            "--json",
+            "--server",
+            &url,
+            "--token",
+            "secret-token",
+            "--save",
+        ],
+    );
+    assert_eq!(first.code, 0, "{} {}", first.stdout, first.stderr);
+    let v: Value = serde_json::from_str(&first.stdout).expect("json");
+    assert!(v["pushed"].as_u64().unwrap_or(0) >= 1, "{v}");
+    assert!(config.exists());
+
+    let b_config = b.path.with_extension("sync.json");
+    let second = sync_cmd(
+        &b,
+        &b_config,
+        &[
+            "sync",
+            "--json",
+            "--server",
+            &url,
+            "--token",
+            "secret-token",
+        ],
+    );
+    assert_eq!(second.code, 0, "{} {}", second.stdout, second.stderr);
+    let terms = b.json(&["term", "list"]);
+    assert_eq!(terms["terms"][0]["name"], "Fall");
+
+    // A later plain sync on A uses the saved config and prints the human summary.
+    let again = sync_cmd(&a, &config, &["sync"]);
+    assert_eq!(again.code, 0, "{} {}", again.stdout, again.stderr);
+    assert!(
+        again.stdout.starts_with("Synced: pushed 0"),
+        "{}",
+        again.stdout
+    );
+    let _ = std::fs::remove_file(&config);
+}

@@ -16,3 +16,9 @@ serde_json.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 tally-core = { path = "../core" }
 tally-store = { path = "../store" }
+tally-sync = { path = "../sync" }
+
+[dev-dependencies]
+axum = "0.8"
+tally-server = { path = "../server" }
+tokio = { version = "1", features = ["rt-multi-thread", "net"] }

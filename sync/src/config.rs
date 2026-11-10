@@ -13,8 +13,11 @@ pub struct SyncConfig {
     pub token: String,
 }
 
-/// `<config dir>/Tally/sync.json`.
+/// `TALLY_SYNC_CONFIG` if set (non-empty), else `<config dir>/Tally/sync.json`.
 pub fn config_path() -> Result<PathBuf, SyncError> {
+    if let Some(p) = std::env::var_os("TALLY_SYNC_CONFIG").filter(|p| !p.is_empty()) {
+        return Ok(PathBuf::from(p));
+    }
     let dir = dirs::config_dir()
         .ok_or_else(|| SyncError::Config("could not determine the config directory".into()))?;
     Ok(dir.join("Tally").join("sync.json"))

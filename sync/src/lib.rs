@@ -8,7 +8,7 @@ pub mod protocol;
 #[cfg(feature = "client")]
 mod client;
 
-pub use config::SyncConfig;
+pub use config::{SyncConfig, config_path};
 pub use engine::{SyncReport, Transport, sync_once, sync_shared};
 pub use protocol::*;
 

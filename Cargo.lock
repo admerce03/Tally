@@ -3688,9 +3688,11 @@ name = "tally-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "serde",
  "serde_json",
  "tally-core",
  "tally-store",
+ "tally-sync",
  "tauri",
  "tauri-build",
 ]
@@ -3700,11 +3702,15 @@ name = "tally-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "clap",
  "serde_json",
  "tally-core",
+ "tally-server",
  "tally-store",
+ "tally-sync",
+ "tokio",
  "uuid",
 ]
 

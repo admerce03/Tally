@@ -57,6 +57,8 @@ pub enum Top {
     Export,
     /// Resolve a name, code or UUID (prefix) to an id.
     Resolve(ResolveArgs),
+    /// Sync this database with a tally-server (push local changes, pull remote ones).
+    Sync(SyncArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -401,4 +403,21 @@ pub fn parse_gpa_status(s: &str) -> Result<GpaStatus, String> {
     serde_json::from_value(serde_json::Value::String(key)).map_err(|_| {
         format!("invalid gpa status '{s}' (expected normal, pass-fail, withdrawn, retaken)")
     })
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SyncArgs {
+    /// Server base URL, e.g. http://100.64.0.1:7878 (else TALLY_SERVER, else the config file).
+    #[arg(long)]
+    pub server: Option<String>,
+    /// Bearer token (else TALLY_TOKEN; prefer --token-file, flags show up in process lists).
+    #[arg(long)]
+    pub token: Option<String>,
+    /// File holding the bearer token (else TALLY_TOKEN_FILE).
+    #[arg(long, value_name = "PATH")]
+    pub token_file: Option<PathBuf>,
+    /// Save the resolved server and token to the sync config file (TALLY_SYNC_CONFIG, else
+    /// <user config dir>/Tally/sync.json). WARNING: the token is stored in plain text.
+    #[arg(long)]
+    pub save: bool,
 }

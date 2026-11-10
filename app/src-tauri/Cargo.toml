@@ -19,4 +19,6 @@ anyhow = "1"
 serde_json.workspace = true
 tally-core = { path = "../../core", features = ["schema"] }
 tally-store = { path = "../../store" }
+tally-sync = { path = "../../sync" }
+serde.workspace = true
 tauri = { version = "2", features = [] }
