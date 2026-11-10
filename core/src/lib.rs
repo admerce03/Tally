@@ -1,5 +1,6 @@
 //! Tally core: domain model, grade math and typed Commands. Pure: no IO, clock or randomness.
 
+pub mod analysis;
 pub mod command;
 pub mod error;
 pub mod gpa;

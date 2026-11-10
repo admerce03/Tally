@@ -3,6 +3,7 @@
 use chrono::NaiveDate;
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::analysis::{self, ImpactEntry, LeverageReport, TrendPoint};
 use crate::error::CoreError;
 use crate::gpa::{CumulativeGpaReport, TermGpaReport};
 use crate::grade;
@@ -158,6 +159,32 @@ pub enum Command {
         #[serde(default)]
         scenario_id: Option<ScenarioId>,
     },
+    /// Per-assignment running-grade change, chronological.
+    Impact {
+        course_id: CourseId,
+        #[serde(default)]
+        curve_mode: CurveMode,
+        #[serde(default)]
+        scenario_id: Option<ScenarioId>,
+    },
+    /// Running grade over time.
+    Trends {
+        course_id: CourseId,
+        #[serde(default)]
+        curve_mode: CurveMode,
+        #[serde(default)]
+        scenario_id: Option<ScenarioId>,
+    },
+    /// Final-grade change per 10% scored on each remaining assignment.
+    Leverage {
+        course_id: CourseId,
+        #[serde(default)]
+        baseline: Option<f64>,
+        #[serde(default)]
+        curve_mode: CurveMode,
+        #[serde(default)]
+        scenario_id: Option<ScenarioId>,
+    },
     SetTarget {
         course_id: CourseId,
         target: Option<f64>,
@@ -249,6 +276,9 @@ pub enum CommandOutput {
     Course { course: Box<Course> },
     CourseGrade { report: CourseGradeReport },
     Solve { solve: SolveResult },
+    Impact { entries: Vec<ImpactEntry> },
+    Trends { points: Vec<TrendPoint> },
+    Leverage { report: LeverageReport },
     Scenarios { scenarios: Vec<Scenario> },
     Comparison { columns: Vec<ScenarioColumn> },
     TermGpa { report: TermGpaReport },
@@ -625,6 +655,46 @@ pub fn execute(gb: &mut Gradebook, cmd: Command) -> Result<CommandOutput, CoreEr
                     projected_letter: projected
                         .map(|g| grade::course_letter(course, g, curve_mode)),
                 },
+            })
+        }
+        Command::Impact {
+            course_id,
+            curve_mode,
+            scenario_id,
+        } => {
+            let view = scenario::view(gb, scenario_id)?;
+            let course = view
+                .course(course_id)
+                .ok_or(CoreError::UnknownCourse(course_id.0))?;
+            Ok(CommandOutput::Impact {
+                entries: analysis::impact(course, curve_mode),
+            })
+        }
+        Command::Trends {
+            course_id,
+            curve_mode,
+            scenario_id,
+        } => {
+            let view = scenario::view(gb, scenario_id)?;
+            let course = view
+                .course(course_id)
+                .ok_or(CoreError::UnknownCourse(course_id.0))?;
+            Ok(CommandOutput::Trends {
+                points: analysis::trends(course, curve_mode),
+            })
+        }
+        Command::Leverage {
+            course_id,
+            baseline,
+            curve_mode,
+            scenario_id,
+        } => {
+            let view = scenario::view(gb, scenario_id)?;
+            let course = view
+                .course(course_id)
+                .ok_or(CoreError::UnknownCourse(course_id.0))?;
+            Ok(CommandOutput::Leverage {
+                report: analysis::leverage(course, baseline, curve_mode)?,
             })
         }
         Command::SetTarget { course_id, target } => {

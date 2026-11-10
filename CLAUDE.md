@@ -85,6 +85,10 @@ Cumulative = sum(points x credits) / sum(credits). Exclude pass/fail, withdrawal
 - **What-if:** `Scenario { id, name, overrides }`. Overrides: set score/status, add hypothetical assignment, set assignment curves, set course curve. `apply_scenario(&Gradebook, &Scenario) -> Gradebook` clones and overlays; real data is never mutated.
 - **GPA:** a course's letter is `official_letter` if set, else computed from its current grade (curves applied). Course `gpa_status: Normal | PassFail | Withdrawn | Retaken`; only Normal counts, and only if it has a letter and credits > 0. Term/cumulative = sum(points x credits) / sum(credits), `None` when no eligible credits.
 - **Dates:** `chrono::NaiveDate` (due dates). Analysis orders by due date, then list order; undated items go last.
+- **Impact:** walk graded assignments in that order. Before/after = current grade counting only the assignments graded so far (drops re-evaluated on that subset). delta = after - before; `None` when before is `None` (first graded work).
+- **Trends:** per course, the running current grade after each graded assignment, one point per distinct date (last value of the day); undated items fold into one final undated point.
+- **Leverage:** for each remaining assignment, fill all other remaining work with a baseline percent (default: current grade *before* the course add_points curve, clamped to 0-100, or 0 if no graded work; overridable), then leverage = (final with this one at 100% - final with it at 0%) / 10. Units: final-grade points per 10% scored. Sorted descending, ties in list order.
+- **Analysis curve mode** defaults to Apply (it describes the displayed grade), overridable.
 
 ## Conventions
 

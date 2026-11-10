@@ -21,6 +21,8 @@ pub enum CoreError {
     NegativeCredits,
     #[error("{field} must be a finite number")]
     NonFinite { field: &'static str },
+    #[error("{field} must be between 0 and 100")]
+    OutOfRange { field: &'static str },
     #[error("invalid curve: {reason}")]
     InvalidCurve { reason: &'static str },
     #[error("unknown scenario {0}")]
