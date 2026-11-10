@@ -1,5 +1,6 @@
 <script lang="ts">
   import { CURVE_LABEL, type CurveRow } from "../format";
+  import Icon from "./Icon.svelte";
 
   let { rows = $bindable() }: { rows: CurveRow[] } = $props();
   const kinds = Object.keys(CURVE_LABEL) as CurveRow["kind"][];
@@ -13,12 +14,14 @@
           <option value={k}>{CURVE_LABEL[k]}</option>
         {/each}
       </select>
-      <input class="narrow" type="text" inputmode="decimal" bind:value={row.value} aria-label="Curve value" />
-      <button type="button" class="btn ghost sm" onclick={() => rows.splice(i, 1)}>Remove</button>
+      <input class="narrow right" type="text" inputmode="decimal" bind:value={row.value} aria-label="Curve value" />
+      <button type="button" class="btn quiet icon" aria-label="Remove curve" onclick={() => rows.splice(i, 1)}>
+        <Icon name="close" />
+      </button>
     </div>
   {/each}
   <div>
-    <button type="button" class="btn sm" onclick={() => rows.push({ kind: "add_points", value: "0" })}>
+    <button type="button" class="btn borderless" onclick={() => rows.push({ kind: "add_points", value: "0" })}>
       Add curve
     </button>
   </div>

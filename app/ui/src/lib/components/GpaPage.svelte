@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { app, ask, mutate, navigate, query, toast } from "../app.svelte";
-  import { EXCLUSION_LABEL, LETTERS, dec2, parseNum, plain } from "../format";
+  import { app, ask, navigate, query } from "../app.svelte";
+  import { EXCLUSION_LABEL, dec2, plain } from "../format";
 
   const report = query(() => {
     const scenario_id = app.scenarioId;
@@ -13,136 +13,90 @@
       return { termReports, cumulative };
     };
   });
-
-  const scale = query(() => () => ask({ command: "show_gpa_scale" }, "gpa_scale").then((o) => o.scale));
-
-  function scaleText(letter: (typeof LETTERS)[number]): string {
-    const hit = scale.value?.points.find((e) => e.letter === letter);
-    return hit ? String(hit.points) : "";
-  }
-
-  async function saveScale(letter: (typeof LETTERS)[number], text: string) {
-    const points = parseNum(text);
-    if (points === undefined) return toast(`Grade points for ${letter} must be a number`);
-    await mutate({ command: "set_gpa_scale_entry", letter, points });
-  }
 </script>
 
-<div class="stack">
-  <header class="spread">
-    <h2>GPA</h2>
-    {#if report.value}
-      <div class="cumulative">
-        <span class="muted small">Cumulative GPA</span>
-        <span class="big num">{dec2(report.value.cumulative.gpa)}</span>
-        <span class="muted small">{plain(report.value.cumulative.credits)} credits</span>
-      </div>
-    {/if}
+<div class="page">
+  <header>
+    <h1 class="t-large">GPA</h1>
   </header>
 
   {#if report.error}
     <div class="empty">{report.error}</div>
-  {:else if report.value && report.value.termReports.length === 0}
-    <div class="empty">No terms yet. Add a term and courses from the sidebar to see your GPA.</div>
   {:else if report.value}
-    {#each report.value.termReports as t (t.term_id)}
-      <section class="card flush">
-        <div class="card-head">
-          <h3>{t.name}</h3>
-          <span class="muted">Term GPA <strong class="num">{dec2(t.gpa)}</strong> &middot; {plain(t.credits)} credits</span>
-        </div>
-        {#if t.courses.length === 0}
-          <p class="muted card-body">No courses in this term.</p>
-        {:else}
-          <table>
-            <thead>
-              <tr>
-                <th>Course</th>
-                <th class="num">Credits</th>
-                <th class="num">Letter</th>
-                <th class="num">Points</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each t.courses as c (c.course_id)}
-                <tr class:excluded={!c.included}>
-                  <td>
-                    <button type="button" class="link" onclick={() => navigate({ name: "course", id: c.course_id })}>
-                      {c.name}
-                    </button>
-                  </td>
-                  <td class="num">{plain(c.credits)}</td>
-                  <td class="num">{c.letter ?? "—"}</td>
-                  <td class="num">{dec2(c.points)}</td>
-                  <td>
-                    {#if c.included}
-                      <span class="pill accent">Included</span>
-                    {:else}
-                      <span class="pill">Excluded{c.exclusion ? `: ${EXCLUSION_LABEL[c.exclusion]}` : ""}</span>
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
-      </section>
-    {/each}
-  {/if}
+    <section class="stats" aria-label="Cumulative GPA">
+      <div class="stat">
+        <span class="stat-label">Cumulative</span>
+        <span class="t-hero num">{dec2(report.value.cumulative.gpa)}</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Credits</span>
+        <span class="stat-value num">{plain(report.value.cumulative.credits)}</span>
+      </div>
+    </section>
 
-  <section class="card stack tight">
-    <h3>GPA scale</h3>
-    <p class="muted small">Grade points per letter. Changes apply to every GPA. Press Enter or leave the field to save.</p>
-    <div class="grid">
-      {#each LETTERS as l (l)}
-        <label class="field">
-          <span>{l}</span>
-          <input
-            inputmode="decimal"
-            value={scaleText(l)}
-            onchange={(e) => saveScale(l, e.currentTarget.value)}
-          />
-        </label>
+    {#if report.value.termReports.length === 0}
+      <div class="empty">No terms yet</div>
+    {/if}
+
+    <div class="cols">
+      {#each report.value.termReports as t (t.term_id)}
+        <section>
+          <div class="section-label spread">
+            <h2 class="t-headline">{t.name}</h2>
+            <span class="t-headline num" title="Term GPA · {plain(t.credits)} credits">{dec2(t.gpa)}</span>
+          </div>
+          <div class="group">
+            {#if t.courses.length === 0}
+              <div class="group-row muted">No courses in this term.</div>
+            {/if}
+            {#each t.courses as c (c.course_id)}
+              <button
+                type="button"
+                class="group-row clickable course"
+                onclick={() => navigate({ name: "course", id: c.course_id })}
+              >
+                <span class="grow">
+                  <span class:muted={!c.included}>{c.name}</span>
+                  {#if !c.included}
+                    <span class="t-callout muted block">
+                      Excluded{c.exclusion ? ` · ${EXCLUSION_LABEL[c.exclusion]}` : ""}
+                    </span>
+                  {/if}
+                </span>
+                <span class="t-callout muted num">{plain(c.credits)} cr</span>
+                <span class="letter num">{c.letter ?? "—"}</span>
+                <span class="pts num muted">{dec2(c.points)}</span>
+              </button>
+            {/each}
+          </div>
+        </section>
       {/each}
     </div>
-  </section>
+  {/if}
 </div>
 
 <style>
-  .cumulative {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-  }
-  .big {
-    font-size: 32px;
-    font-weight: 650;
-    line-height: 1.1;
-  }
-  .excluded td {
-    color: var(--fg-muted);
-  }
-  .link {
+  .course {
+    width: 100%;
     background: none;
     border: 0;
-    padding: 0;
-    color: var(--accent);
-    cursor: pointer;
     text-align: left;
+    color: inherit;
   }
-  .link:hover {
-    text-decoration: underline;
+  .stats {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--s8);
   }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-    gap: 10px;
+  .block {
+    display: block;
   }
-  .grid input {
-    width: 100%;
+  .letter {
+    min-width: 32px;
+    text-align: right;
   }
-  strong {
-    font-variant-numeric: tabular-nums;
+  .pts {
+    min-width: 40px;
+    text-align: right;
   }
 </style>

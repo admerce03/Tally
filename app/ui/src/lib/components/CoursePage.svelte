@@ -1,42 +1,135 @@
 <script lang="ts">
   import { newId } from "../api";
   import { app, ask, mutate, query, toast } from "../app.svelte";
-  import { parseNum, pct } from "../format";
-  import AnalysisPanel from "./AnalysisPanel.svelte";
+  import { dec2, parseNum, pct, plain } from "../format";
+  import type { NeededScore } from "../generated/output";
   import CategoryCard from "./CategoryCard.svelte";
-  import CourseSettings from "./CourseSettings.svelte";
-  import SolverPanel from "./SolverPanel.svelte";
+  import TargetStat from "./TargetStat.svelte";
+  import TrendChart from "./TrendChart.svelte";
 
   let { courseId }: { courseId: string } = $props();
 
-  type Tab = "grades" | "target" | "analysis";
-  let tab = $state<Tab>("grades");
-  let settingsOpen = $state(false);
   let addingCategory = $state(false);
   let cat = $state({ name: "", weight: "", drop: "0" });
 
-  // Switching course resets view state.
-  $effect(() => {
-    void courseId;
-    tab = "grades";
-    settingsOpen = false;
-    addingCategory = false;
-  });
+  const sid = $derived(app.scenarioId);
+  /** `undefined` skips a "real data" query when no what-if is open. */
+  const realSid = $derived(sid ? null : undefined);
 
   const course = query(() => {
-    const cmd = { command: "show_course" as const, course_id: courseId, scenario_id: app.scenarioId };
+    const cmd = { command: "show_course" as const, course_id: courseId, scenario_id: sid };
     return () => ask(cmd, "course").then((o) => o.course);
   });
-
-  const grade = query(() => {
-    const cmd = {
-      command: "course_grade" as const,
-      course_id: courseId,
-      curve_mode: app.curveMode,
-      scenario_id: app.scenarioId,
-    };
-    return () => ask(cmd, "course_grade").then((o) => o.report);
+  // The real course beside a what-if: the faint real score next to each what-if chip.
+  const realCourse = query(() => {
+    if (realSid === undefined) return null;
+    return () => ask({ command: "show_course", course_id: courseId }, "course").then((o) => o.course);
   });
+
+  const terms = query(() => () => ask({ command: "list_terms" }, "terms").then((o) => o.terms));
+  const termName = $derived(terms.value?.find((t) => t.courses.some((c) => c.id === courseId))?.name ?? null);
+
+  function gradeQuery(scenario: () => string | null | undefined) {
+    return query(() => {
+      const scenario_id = scenario();
+      if (scenario_id === undefined) return null;
+      const cmd = { command: "course_grade" as const, course_id: courseId, curve_mode: app.curveMode, scenario_id };
+      return () => ask(cmd, "course_grade").then((o) => o.report);
+    });
+  }
+  const grade = gradeQuery(() => sid);
+  const realGrade = gradeQuery(() => realSid);
+
+  function gpaQuery(scenario: () => string | null | undefined) {
+    return query(() => {
+      const scenario_id = scenario();
+      if (scenario_id === undefined) return null;
+      return () => ask({ command: "cumulative_gpa", scenario_id }, "cumulative_gpa").then((o) => o.report.gpa ?? null);
+    });
+  }
+  const gpa = gpaQuery(() => sid ?? undefined);
+  const realGpa = gpaQuery(() => realSid);
+
+  // One solve feeds the target color and the per-assignment "needed".
+  const target = $derived(course.value?.target ?? null);
+  const solve = query(() => {
+    if (target == null) return null;
+    const cmd = {
+      command: "solve_target" as const,
+      course_id: courseId,
+      locked: [],
+      with_curve: app.solverCurve,
+      scenario_id: sid,
+    };
+    return () => ask(cmd, "solve").then((o) => o.solve);
+  });
+  const needed = $derived(
+    new Map<string, NeededScore>((solve.value?.needed_scores ?? []).map((n) => [n.assignment_id, n])),
+  );
+
+  function impactQuery(scenario: () => string | null | undefined) {
+    return query(() => {
+      const scenario_id = scenario();
+      if (scenario_id === undefined) return null;
+      const cmd = { command: "impact" as const, course_id: courseId, curve_mode: app.curveMode, scenario_id };
+      return () => ask(cmd, "impact").then((o) => o.entries);
+    });
+  }
+  const impact = impactQuery(() => sid);
+  const realImpact = impactQuery(() => realSid);
+  const moves = $derived(new Map((impact.value ?? []).map((e) => [e.assignment_id, e.delta ?? null])));
+
+  const leverageQ = query(() => {
+    const cmd = {
+      command: "leverage" as const,
+      course_id: courseId,
+      baseline: null,
+      curve_mode: app.curveMode,
+      scenario_id: sid,
+    };
+    return () => ask(cmd, "leverage").then((o) => o.report.entries);
+  });
+  const leverage = $derived.by(() => {
+    const entries = leverageQ.value ?? [];
+    // Bar widths are layout only: each is drawn against the largest entry.
+    const max = Math.max(0, ...entries.map((e) => e.leverage));
+    return new Map(entries.map((e) => [e.assignment_id, { value: e.leverage, share: max > 0 ? e.leverage / max : 0 }]));
+  });
+
+  // Which rows the open what-if changes, and the override indices that undo each.
+  const scenario = query(() => {
+    if (!sid) return null;
+    return () => ask({ command: "list_scenarios" }, "scenarios").then((o) => o.scenarios.find((s) => s.id === sid) ?? null);
+  });
+  const overrides = $derived.by(() => {
+    const map = new Map<string, number[]>();
+    const add = (id: string, i: number) => map.set(id, [...(map.get(id) ?? []), i]);
+    (scenario.value?.overrides ?? []).forEach((o, i) => {
+      if (o.type === "set_score" || o.type === "set_status" || o.type === "set_assignment_curves") add(o.assignment_id, i);
+      if (o.type === "add_assignment") add(o.assignment.id, i);
+    });
+    return map;
+  });
+  const realScores = $derived.by(() => {
+    if (!realCourse.value) return undefined;
+    const map = new Map<string, number | null>();
+    for (const k of realCourse.value.categories) for (const a of k.assignments) map.set(a.id, a.score ?? null);
+    return map;
+  });
+
+  const meta = $derived.by(() => {
+    const c = course.value;
+    if (!c) return "";
+    const out = [`${plain(c.credits)} ${c.credits === 1 ? "credit" : "credits"}`];
+    if (c.code && c.code !== c.name) out.unshift(c.code);
+    if (termName) out.push(termName);
+    return out.join(" · ");
+  });
+
+  const fmtGrade = (r: { current?: number | null; current_letter?: string | null } | null) =>
+    r ? `${pct(r.current)} ${r.current_letter ?? ""}`.trim() : "";
+  const gradeMoved = $derived(!!sid && !!realGrade.value && fmtGrade(realGrade.value) !== fmtGrade(grade.value));
+  const gpaMoved = $derived(!!sid && dec2(gpa.value) !== dec2(realGpa.value));
 
   function focusOnMount(node: HTMLInputElement) {
     node.focus();
@@ -68,137 +161,137 @@
   <div class="empty">{course.error}</div>
 {:else if course.value}
   {@const c = course.value}
-  <div class="stack">
-    <header class="spread top">
-      <div>
-        <h2>{c.name}</h2>
-        <p class="muted small">
-          {#if c.code}{c.code} &middot;{/if}
-          {c.credits} credits
-          {#if c.target != null}&middot; target {c.target}%{/if}
-          {#if c.gpa_status && c.gpa_status !== "normal"}&middot; {c.gpa_status.replace("_", "/")}{/if}
-        </p>
-      </div>
-      <div class="cluster">
-        <div class="seg" role="group" aria-label="Curve">
-          <button type="button" aria-pressed={app.curveMode === "apply"} onclick={() => (app.curveMode = "apply")}>
-            Curve: apply
-          </button>
-          <button type="button" aria-pressed={app.curveMode === "ignore"} onclick={() => (app.curveMode = "ignore")}>
-            Ignore
-          </button>
-        </div>
-        <button type="button" class="btn" onclick={() => (settingsOpen = true)}>Settings</button>
-      </div>
+  {@const g = grade.value}
+  <div class="page">
+    <header>
+      <h1 class="t-large ellipsis">{c.name}</h1>
+      <p class="t-callout muted">{meta}</p>
     </header>
 
-    <section class="stats" aria-label="Grade summary">
-      <div class="card stat">
-        <span class="muted small">Current</span>
-        <span class="big num">{pct(grade.value?.current)}</span>
-        <span class="pill accent">{grade.value?.current_letter ?? "—"}</span>
+    <section class="summary" aria-label="Grade summary">
+      <div class="hero">
+        {#if gradeMoved && realGrade.value}
+          <span class="was num" title="Real grade">{fmtGrade(realGrade.value)}</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        {/if}
+        {#if g?.current != null}
+          <span class="t-hero num" class:accent={gradeMoved}>{pct(g.current)}</span>
+          {#if g.current_letter}<span class="letter">{g.current_letter}</span>{/if}
+        {:else}
+          <span class="t-hero faint">{g ? "—" : " "}</span>
+        {/if}
+        {#if grade.error}<p class="error-text t-callout">{grade.error}</p>{/if}
       </div>
-      <div class="card stat">
-        <span class="muted small">Projected (full weights)</span>
-        <span class="big num">{pct(grade.value?.projected)}</span>
-        <span class="pill">{grade.value?.projected_letter ?? "—"}</span>
+
+      <div class="stats">
+        <TargetStat course={c} solve={solve.value} />
+        <div class="stat" title="Your final grade if you score 0 on everything left">
+          <span class="stat-label">Locked in</span>
+          <span class="stat-value num">{pct(g?.projected)}</span>
+        </div>
+        {#if sid}
+          <div class="stat" title="Cumulative GPA">
+            <span class="stat-label">GPA</span>
+            <span class="stat-value num">
+              {#if gpaMoved}<span class="was-sm">{dec2(realGpa.value)} →</span>{/if}
+              <span class:accent={gpaMoved}>{dec2(gpa.value)}</span>
+            </span>
+          </div>
+        {/if}
       </div>
     </section>
-    {#if grade.error}
-      <p class="error-text small">{grade.error}</p>
-    {/if}
 
-    <div class="tabs" role="tablist">
-      <button type="button" role="tab" aria-selected={tab === "grades"} onclick={() => (tab = "grades")}>Grades</button>
-      <button type="button" role="tab" aria-selected={tab === "target"} onclick={() => (tab = "target")}>Target</button>
-      <button type="button" role="tab" aria-selected={tab === "analysis"} onclick={() => (tab = "analysis")}>Analysis</button>
-    </div>
+    <section class="cols" aria-label="Assignments">
+      {#each c.categories as category (category.id)}
+        <CategoryCard
+          {category}
+          breakdown={g?.categories.find((b) => b.category_id === category.id)}
+          needed={c.target != null ? needed : undefined}
+          impact={moves}
+          {leverage}
+          {overrides}
+          {realScores}
+        />
+      {/each}
 
-    {#if tab === "grades"}
-      <div class="stack">
-        {#if c.categories.length === 0 && !addingCategory}
-          <div class="empty">
-            <p>No categories yet. Add one (for example Homework or Exams) to start entering grades.</p>
-            <button type="button" class="btn primary" disabled={!!app.scenarioId} onclick={() => (addingCategory = true)}>
-              Add category
-            </button>
+      {#if addingCategory}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <form class="group" onsubmit={addCategory} onkeydown={(e) => e.key === "Escape" && (addingCategory = false)}>
+          <div class="editor">
+            <div class="editor-grid">
+              <label class="field wide">
+                <span>Category</span>
+                <input use:focusOnMount bind:value={cat.name} placeholder="Homework" />
+              </label>
+              <label class="field">
+                <span>Weight (%)</span>
+                <input bind:value={cat.weight} inputmode="decimal" />
+              </label>
+              <label class="field">
+                <span>Drop lowest</span>
+                <input bind:value={cat.drop} inputmode="numeric" />
+              </label>
+            </div>
+            <div class="editor-foot">
+              <button type="button" class="btn" onclick={() => (addingCategory = false)}>Cancel</button>
+              <button type="submit" class="btn prominent">Add</button>
+            </div>
           </div>
-        {/if}
-        {#each c.categories as category (category.id)}
-          <CategoryCard
-            {category}
-            breakdown={grade.value?.categories.find((b) => b.category_id === category.id)}
-          />
-        {/each}
-        {#if addingCategory}
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <form
-            class="card inline"
-            onsubmit={addCategory}
-            onkeydown={(e) => e.key === "Escape" && (addingCategory = false)}
-          >
-            <label class="field">
-              <span>Category name</span>
-              <input use:focusOnMount bind:value={cat.name} />
-            </label>
-            <label class="field">
-              <span>Weight</span>
-              <input class="narrow" bind:value={cat.weight} inputmode="decimal" />
-            </label>
-            <label class="field">
-              <span>Drop lowest</span>
-              <input class="narrow" bind:value={cat.drop} inputmode="numeric" />
-            </label>
-            <button type="submit" class="btn primary">Add category</button>
-            <button type="button" class="btn ghost" onclick={() => (addingCategory = false)}>Cancel</button>
-          </form>
-        {:else if c.categories.length > 0}
-          <div>
-            <button type="button" class="btn" disabled={!!app.scenarioId} onclick={() => (addingCategory = true)}>
-              + Category
-            </button>
-          </div>
-        {/if}
-      </div>
-    {:else if tab === "target"}
-      <SolverPanel course={c} />
-    {:else}
-      <AnalysisPanel {courseId} />
-    {/if}
+        </form>
+      {:else if !sid}
+        <div class="add-cat">
+          <button type="button" class="btn borderless" onclick={() => (addingCategory = true)}>Add category</button>
+        </div>
+      {/if}
+    </section>
+
+    <section class="trend" aria-label="Grade over time">
+      <TrendChart entries={impact.value ?? []} real={sid ? (realImpact.value ?? []) : null} target={c.target ?? null} />
+    </section>
   </div>
-
-  {#if settingsOpen}
-    <CourseSettings course={c} onclose={() => (settingsOpen = false)} />
-  {/if}
 {:else if course.loading}
   <p class="muted">Loading...</p>
 {/if}
 
 <style>
-  .top h2 {
-    margin-bottom: 2px;
+  .summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--s4) var(--s8);
   }
-  p {
-    margin: 0;
+  .hero {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0 var(--s3);
+  }
+  .letter {
+    font: var(--t-hero);
+    font-weight: 400;
+    color: var(--label-2);
+  }
+  .was {
+    font: 500 22px/28px var(--font);
+    color: var(--label-3);
+  }
+  .arrow {
+    font: 400 22px/28px var(--font);
+    color: var(--label-3);
+  }
+  .was-sm {
+    color: var(--label-3);
+    font-weight: 400;
   }
   .stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 12px;
-  }
-  .stat {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    align-items: flex-start;
+    gap: var(--s8);
   }
-  .big {
-    font-size: 28px;
-    font-weight: 650;
-    letter-spacing: -0.01em;
-    text-align: left;
+  .add-cat {
+    grid-column: 1 / -1;
   }
-  .empty p {
-    margin-bottom: 12px;
+  .trend {
+    padding-top: var(--s2);
   }
 </style>

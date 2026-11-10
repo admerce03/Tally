@@ -6,7 +6,7 @@ export const STATUSES: AssignmentStatus[] = ["pending", "submitted", "graded", "
 export const GPA_STATUSES: GpaStatus[] = ["normal", "pass_fail", "withdrawn", "retaken"];
 
 export const GPA_STATUS_LABEL: Record<GpaStatus, string> = {
-  normal: "Normal",
+  normal: "Counts toward GPA",
   pass_fail: "Pass/fail",
   withdrawn: "Withdrawn",
   retaken: "Retaken",
@@ -20,8 +20,22 @@ export const EXCLUSION_LABEL: Record<ExclusionReason, string> = {
   no_grade: "No grade yet",
 };
 
+/** Percent trimmed to at most 1 decimal: 87.5%, 90%. */
 export function pct(n: number | null | undefined): string {
-  return n == null ? "—" : `${n.toFixed(2)}%`;
+  return n == null ? "—" : `${Number(n.toFixed(1))}%`;
+}
+
+/** "2026-10-03" -> "Oct 3" (adds the year when it is not the current one). Formatting only. */
+export function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const opts: Intl.DateTimeFormatOptions =
+    d.getFullYear() === new Date().getFullYear()
+      ? { month: "short", day: "numeric" }
+      : { month: "short", day: "numeric", year: "numeric" };
+  return d.toLocaleDateString([], opts);
 }
 
 export function dec2(n: number | null | undefined): string {
@@ -33,14 +47,18 @@ export function plain(n: number | null | undefined): string {
   return n == null ? "—" : String(Number(n.toFixed(4)));
 }
 
-export function signed(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return `${n > 0 ? "+" : ""}${n.toFixed(2)}`;
+/** A grade movement to 1 decimal as an arrow ("↑1.2", "↓0.8"), so it never reads as bonus points; null when it rounds to 0. */
+export function movement(n: number | null | undefined): string | null {
+  if (n == null) return null;
+  const r = Number(n.toFixed(1));
+  if (r === 0) return null;
+  return r > 0 ? `↑${r}` : `↓${Math.abs(r)}`;
 }
 
-export function signClass(n: number | null | undefined): string {
-  if (n == null || Math.abs(n) < 0.005) return "";
-  return n > 0 ? "pos" : "neg";
+/** A year written in a term name ("Fall 2026" -> 2026), to prefill the year field. Display help only. */
+export function guessYear(name: string): number | null {
+  const m = /\b(19|20)\d{2}\b/.exec(name);
+  return m ? Number(m[0]) : null;
 }
 
 export function cap(s: string): string {
@@ -92,4 +110,11 @@ export function describeCurve(c: AssignmentCurve): string {
   if ("add_points" in c) return `+${c.add_points} pts`;
   if ("scale_top_to" in c) return `top ${c.scale_top_to.top_score} = 100%`;
   return `max ${c.set_max}`;
+}
+
+/** Round UP to 1 decimal (a safe minimum), without a trailing ".0". Formatting only. */
+export function ceil1(x: number): string {
+  // The solver's binary search lands up to ~1e-6 above the exact answer; don't round that up.
+  const v = Math.ceil(x * 10 - 1e-4) / 10;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }

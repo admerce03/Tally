@@ -29,16 +29,56 @@ function toHash(r: Route): string {
   }
 }
 
+function load(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function save(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage can be unavailable; the setting just will not persist.
+  }
+}
+
+/** Remembered per device (localStorage); both helpers tolerate storage being unavailable. */
+export const stored = { load, save };
+
 export const app = $state({
   route: parseHash() as Route,
   /** Scenario every query runs through, or null for real data. */
   scenarioId: null as string | null,
   /** Whether displayed grades apply curves (assumptions) or ignore them. */
-  curveMode: "apply" as "apply" | "ignore",
+  curveMode: (load("tally.curveMode") === "ignore" ? "ignore" : "apply") as "apply" | "ignore",
+  /** Whether "what you need" counts the expected course curve (solver with_curve). */
+  solverCurve: load("tally.solverCurve") === "1",
+  /** Sidebar groups terms under collapsible years, newest first (per device). */
+  groupByYear: load("tally.groupByYear") === "1",
+  /** The Settings sheet. */
+  settingsOpen: false,
   /** Bumped after every successful mutation; queries re-run when it changes. */
   rev: 0,
   toasts: [] as Toast[],
 });
+
+export function setCurveMode(mode: "apply" | "ignore"): void {
+  app.curveMode = mode;
+  save("tally.curveMode", mode);
+}
+
+export function setGroupByYear(on: boolean): void {
+  app.groupByYear = on;
+  save("tally.groupByYear", on ? "1" : "0");
+}
+
+export function setSolverCurve(on: boolean): void {
+  app.solverCurve = on;
+  save("tally.solverCurve", on ? "1" : "0");
+}
 
 window.addEventListener("hashchange", () => {
   app.route = parseHash();

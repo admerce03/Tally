@@ -100,6 +100,7 @@ Create now: `app/` with `app/src-tauri` (crate `tally-app`, workspace member) an
 - **Parity:** the UI never computes grades. Every number shown comes from a `CommandOutput`. The UI only builds `Command` JSON (UUIDs via `crypto.randomUUID()`) and renders results.
 - **Frontend:** Svelte 5 + Vite + TypeScript, no UI kit; charts are hand-drawn SVG (no chart library). Tauri CLI comes from the `@tauri-apps/cli` npm dev dependency (no global install).
 - **Refresh:** after any mutation the UI re-queries what it shows; there is no client-side cache of grade math.
+- **Design guidelines:** `app/ui/DESIGN.md` (Apple-HIG-style: one tool per job, settings for set-once things, edit in place, type-driven hierarchy). Read it before any UI change and keep it current when a design decision changes.
 
 ## Current milestone: 4 — sync server + remote MCP (home server, Tailscale)
 

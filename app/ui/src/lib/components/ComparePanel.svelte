@@ -1,112 +1,90 @@
 <script lang="ts">
-  import { ask, query } from "../app.svelte";
   import { dec2, pct } from "../format";
-  import type { CompareCourse, CompareTerm } from "../generated/output";
+  import type { ScenarioColumn } from "../generated/output";
 
-  // Empty scenario_ids = compare real data with every scenario.
-  const cmp = query(
-    () => () => ask({ command: "compare_scenarios", scenario_ids: [] }, "comparison").then((o) => o.columns),
-  );
+  // Real data and every what-if side by side, only the rows where some what-if differs from real.
+  // Columns come from core compare_scenarios; a cell that differs from real is accent.
+  let { columns }: { columns: ScenarioColumn[] } = $props();
+
+  type Row = { key: string; label: string; cell: (col: ScenarioColumn) => string; total?: boolean };
+
+  const real = $derived(columns.find((c) => c.scenario_id == null) ?? null);
+  const cols = $derived(real ? [real, ...columns.filter((c) => c !== real)] : columns);
 
   // Row keys: union across columns, first-seen order (layout only).
-  const courseRows = $derived.by(() => {
-    const seen = new Map<string, string>();
-    for (const col of cmp.value ?? []) for (const c of col.courses) if (!seen.has(c.course_id)) seen.set(c.course_id, c.name);
-    return [...seen];
+  const rows = $derived.by(() => {
+    const out: Row[] = [];
+    const seen = new Set<string>();
+    for (const col of cols)
+      for (const c of col.courses)
+        if (!seen.has(c.course_id)) {
+          seen.add(c.course_id);
+          out.push({
+            key: c.course_id,
+            label: c.name,
+            cell: (k) => {
+              const x = k.courses.find((y) => y.course_id === c.course_id);
+              return x ? `${pct(x.current)} ${x.current_letter ?? ""}`.trim() : "—";
+            },
+          });
+        }
+    for (const col of cols)
+      for (const t of col.terms)
+        if (!seen.has(t.term_id)) {
+          seen.add(t.term_id);
+          out.push({
+            key: t.term_id,
+            label: `${t.name} GPA`,
+            cell: (k) => dec2(k.terms.find((y) => y.term_id === t.term_id)?.gpa),
+          });
+        }
+    out.push({ key: "cumulative", label: "Cumulative GPA", cell: (k) => dec2(k.cumulative_gpa), total: true });
+    if (!real) return out;
+    return out.filter((r) => r.total || cols.some((c) => c !== real && !c.error && r.cell(c) !== r.cell(real)));
   });
-  const termRows = $derived.by(() => {
-    const seen = new Map<string, string>();
-    for (const col of cmp.value ?? []) for (const t of col.terms) if (!seen.has(t.term_id)) seen.set(t.term_id, t.name);
-    return [...seen];
-  });
-
-  function course(cols: CompareCourse[], id: string): CompareCourse | undefined {
-    return cols.find((c) => c.course_id === id);
-  }
-  function term(ts: CompareTerm[], id: string): CompareTerm | undefined {
-    return ts.find((t) => t.term_id === id);
-  }
 </script>
 
-<section class="card flush">
-  <div class="card-head"><h3>Compare side by side</h3></div>
-  {#if cmp.error}
-    <p class="error-text card-body">{cmp.error}</p>
-  {:else if cmp.value && cmp.value.length > 0}
-    <div class="scroll">
-      <table>
-        <thead>
-          <tr>
-            <th></th>
-            {#each cmp.value as col, i (col.scenario_id ?? `real-${i}`)}
-              <th class="num">{col.scenario_id ? col.name : "Real data"}</th>
+{#if cols.length > 1}
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          {#each cols as col, i (col.scenario_id ?? `real-${i}`)}
+            <th class="num">{col.scenario_id ? col.name : "Real"}</th>
+          {/each}
+        </tr>
+      </thead>
+      <tbody>
+        {#each rows as r (r.key)}
+          {@const base = r.cell(cols[0])}
+          <tr class:total={r.total}>
+            <td>{r.label}</td>
+            {#each cols as col, i (col.scenario_id ?? `real-${i}`)}
+              {@const v = col.error ? "" : r.cell(col)}
+              <td class="num" class:hypo-val={i > 0 && v !== base}>{v}</td>
             {/each}
           </tr>
-        </thead>
-        <tbody>
-          {#if cmp.value.some((c) => c.error)}
-            <tr>
-              <td class="muted">Errors</td>
-              {#each cmp.value as col, i (col.scenario_id ?? `real-${i}`)}
-                <td class="num error-text wrap">{col.error ?? ""}</td>
-              {/each}
-            </tr>
-          {/if}
-          <tr class="group"><td colspan={cmp.value.length + 1}>Courses (current / projected)</td></tr>
-          {#each courseRows as [id, name] (id)}
-            <tr>
-              <td>{name}</td>
-              {#each cmp.value as col, i (col.scenario_id ?? `real-${i}`)}
-                {@const c = course(col.courses, id)}
-                <td class="num">
-                  {#if c}
-                    <div>{pct(c.current)} {c.current_letter ?? ""}</div>
-                    <div class="muted small">{pct(c.projected)} {c.projected_letter ?? ""}</div>
-                  {:else}
-                    <span class="muted">{"—"}</span>
-                  {/if}
-                </td>
-              {/each}
-            </tr>
-          {/each}
-          <tr class="group"><td colspan={cmp.value.length + 1}>Term GPA</td></tr>
-          {#each termRows as [id, name] (id)}
-            <tr>
-              <td>{name}</td>
-              {#each cmp.value as col, i (col.scenario_id ?? `real-${i}`)}
-                <td class="num">{dec2(term(col.terms, id)?.gpa)}</td>
-              {/each}
-            </tr>
-          {/each}
-          <tr class="group total">
-            <td>Cumulative GPA</td>
-            {#each cmp.value as col, i (col.scenario_id ?? `real-${i}`)}
-              <td class="num">{dec2(col.cumulative_gpa)}</td>
-            {/each}
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  {:else}
-    <p class="muted card-body">Nothing to compare yet.</p>
-  {/if}
-</section>
+        {/each}
+      </tbody>
+    </table>
+  </div>
+{/if}
 
 <style>
   .scroll {
     overflow-x: auto;
   }
-  .group td {
-    font-size: 12px;
-    color: var(--fg-muted);
-    background: var(--bg-side);
+  table {
+    width: auto;
+    min-width: min(100%, 560px);
+  }
+  th.num {
+    white-space: normal;
+    max-width: 140px;
+    vertical-align: bottom;
   }
   .total td {
     font-weight: 600;
-    color: var(--fg);
-  }
-  .wrap {
-    white-space: normal;
-    max-width: 220px;
   }
 </style>

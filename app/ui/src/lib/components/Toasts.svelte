@@ -1,12 +1,16 @@
 <script lang="ts">
   import { app, dismissToast } from "../app.svelte";
+  import Icon from "./Icon.svelte";
 </script>
 
 <div class="toasts" aria-live="polite">
   {#each app.toasts as t (t.id)}
-    <div class="toast" class:err={t.kind === "error"} role="status">
-      <span>{t.text}</span>
-      <button type="button" class="btn ghost sm" onclick={() => dismissToast(t.id)} aria-label="Dismiss">x</button>
+    <div class="toast" role="status">
+      {#if t.kind === "error"}<span class="dot" aria-hidden="true"></span>{/if}
+      <span class="grow">{t.text}</span>
+      <button type="button" class="btn quiet icon" onclick={() => dismissToast(t.id)} aria-label="Dismiss">
+        <Icon name="close" size={14} />
+      </button>
     </div>
   {/each}
 </div>
@@ -14,26 +18,28 @@
 <style>
   .toasts {
     position: fixed;
-    right: 16px;
-    bottom: 16px;
+    right: var(--s4);
+    bottom: var(--s4);
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    z-index: 40;
+    gap: var(--s2);
+    z-index: 70;
     max-width: min(420px, calc(100vw - 32px));
   }
   .toast {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 10px 12px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    align-items: center;
+    gap: var(--s2);
+    background: var(--bg);
+    border-radius: var(--r-group);
+    padding: var(--s2) var(--s2) var(--s2) var(--s3);
+    box-shadow: var(--shadow);
   }
-  .toast.err {
-    border-color: var(--neg);
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    flex: none;
   }
 </style>

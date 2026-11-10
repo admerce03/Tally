@@ -3,9 +3,10 @@
   import { app, mutate, toast } from "../app.svelte";
   import { STATUSES, cap, curveToRow, parseNum, parseOptNum, rowsToCurves, type CurveRow } from "../format";
   import type { AssignmentStatus, AssignmentView, Override } from "../generated/output";
+  import Alert from "./Alert.svelte";
   import CurveList from "./CurveList.svelte";
 
-  // Add mode: pass categoryId. Edit mode: pass assignment.
+  // Add mode: pass categoryId. Edit mode: pass assignment. Rendered as an in-place row editor.
   let {
     categoryId,
     assignment,
@@ -25,9 +26,12 @@
   // In a scenario only score, status and curves of existing assignments can be overridden.
   const lockedFields = $derived(!!app.scenarioId && !!assignment);
   let f = $state(init());
+  let confirmDelete = $state(false);
 
   function focusOnMount(node: HTMLInputElement) {
     node.focus();
+    // bind:value fills the field after this action runs (and resets the caret); select after it has.
+    setTimeout(() => node.select(), 0);
   }
 
   async function submit(e: Event) {
@@ -93,32 +97,39 @@
     }
     if (out) onclose();
   }
+
+  async function remove() {
+    confirmDelete = false;
+    if (assignment && (await mutate({ command: "remove_assignment", id: assignment.id }))) onclose();
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <form
-  class="stack tight form"
+  class="editor"
   onsubmit={submit}
   onkeydown={(e) => {
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && !confirmDelete) {
       e.stopPropagation();
       onclose();
     }
   }}
 >
-  <div class="cluster">
-    <label class="field grow">
+  <div class="editor-grid">
+    <label class="field wide">
       <span>Name</span>
       <input use:focusOnMount bind:value={f.name} disabled={lockedFields} />
     </label>
     <label class="field">
       <span>Points possible</span>
-      <input class="narrow" bind:value={f.points} inputmode="decimal" disabled={lockedFields} />
+      <input bind:value={f.points} inputmode="decimal" disabled={lockedFields} />
     </label>
-    <label class="field">
-      <span>Score (points)</span>
-      <input class="narrow" bind:value={f.score} inputmode="decimal" placeholder="ungraded" />
-    </label>
+    {#if !assignment}
+      <label class="field">
+        <span>Score (points)</span>
+        <input bind:value={f.score} inputmode="decimal" placeholder="not graded" />
+      </label>
+    {/if}
     <label class="field">
       <span>Due</span>
       <input type="date" bind:value={f.due} disabled={lockedFields} />
@@ -131,22 +142,25 @@
         {/each}
       </select>
     </label>
-  </div>
-  {#if assignment}
-    <div class="field">
-      <span>Assignment curves (assumptions, scores stay unchanged)</span>
+    <div class="field wide">
+      <span title="Assumptions: the stored score never changes">Curves</span>
       <CurveList bind:rows={f.curves} />
     </div>
-  {/if}
-  <div class="cluster">
-    <button type="submit" class="btn primary sm">{assignment ? "Save" : "Add assignment"}</button>
-    <button type="button" class="btn ghost sm" onclick={onclose}>Cancel</button>
+  </div>
+  <div class="editor-foot">
+    {#if assignment && !app.scenarioId}
+      <button type="button" class="btn destructive lead" onclick={() => (confirmDelete = true)}>Delete</button>
+    {/if}
+    <button type="button" class="btn" onclick={onclose}>Cancel</button>
+    <button type="submit" class="btn prominent">{assignment ? "Done" : "Add"}</button>
   </div>
 </form>
 
-<style>
-  .form {
-    padding: 12px 16px;
-    background: var(--bg-side);
-  }
-</style>
+{#if confirmDelete && assignment}
+  <Alert
+    title="Delete {assignment.name}?"
+    message="This can't be undone."
+    onconfirm={remove}
+    oncancel={() => (confirmDelete = false)}
+  />
+{/if}
