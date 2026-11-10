@@ -387,7 +387,12 @@ impl Store {
                 pushed INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS ops_order
-                ON ops (wall_ms, counter, device_id, op_id);",
+                ON ops (wall_ms, counter, device_id, op_id);
+            CREATE TABLE IF NOT EXISTS server_ops (
+                server_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_id TEXT NOT NULL UNIQUE,
+                op_json TEXT NOT NULL
+            );",
         )?;
         let version: Option<i64> = tx
             .query_row(
@@ -548,48 +553,168 @@ impl Store {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let meta = read_meta(&tx)?;
-        let mut hlc = meta.last_hlc;
-        let mut gb = load_from(&tx)?;
-        // Local state that predates the log must be in it before remote ops are merged.
-        bootstrap_in(&tx, &gb, meta.device_id, &mut hlc, now_ms)?;
-        let newest = newest_op_key(&tx)?;
-
-        let mut fresh: Vec<Op> = Vec::new();
-        for op in ops {
-            if op_exists(&tx, op.op_id)? {
-                tx.execute(
-                    "UPDATE ops SET pushed = 1 WHERE op_id = ?1",
-                    params![op.op_id.0.to_string()],
-                )?;
-                continue;
-            }
-            insert_op(&tx, &op, true)?;
-            hlc = recv(hlc, op.hlc, now_ms);
-            fresh.push(op);
-        }
-        fresh.sort_by_key(Op::key);
-
-        let mut skipped = Vec::new();
-        if let Some(first) = fresh.first() {
-            if newest.is_none_or(|n| first.key() > n) {
-                skipped = apply_sorted(&mut gb, &fresh);
-            } else {
-                let result = replay(&query_ops(&tx, "")?);
-                gb = result.gradebook;
-                skipped = result
-                    .skipped
-                    .into_iter()
-                    .filter(|(id, _)| fresh.iter().any(|o| o.op_id == *id))
-                    .collect();
-            }
-            save_to(&tx, &gb)?;
-        }
-        write_hlc(&tx, hlc)?;
-        clear_bootstrap_flag(&tx)?;
+        let skipped = apply_remote_in(&tx, ops, now_ms)?;
         tx.commit()?;
         Ok(skipped)
     }
+}
+
+/// Body of [`Store::apply_remote_ops`], inside the caller's transaction.
+fn apply_remote_in(
+    tx: &Connection,
+    ops: Vec<Op>,
+    now_ms: u64,
+) -> Result<Vec<(OpId, String)>, StoreError> {
+    let meta = read_meta(tx)?;
+    let mut hlc = meta.last_hlc;
+    let mut gb = load_from(tx)?;
+    // Local state that predates the log must be in it before remote ops are merged.
+    bootstrap_in(tx, &gb, meta.device_id, &mut hlc, now_ms)?;
+    let newest = newest_op_key(tx)?;
+
+    let mut fresh: Vec<Op> = Vec::new();
+    for op in ops {
+        if op_exists(tx, op.op_id)? {
+            tx.execute(
+                "UPDATE ops SET pushed = 1 WHERE op_id = ?1",
+                params![op.op_id.0.to_string()],
+            )?;
+            continue;
+        }
+        insert_op(tx, &op, true)?;
+        hlc = recv(hlc, op.hlc, now_ms);
+        fresh.push(op);
+    }
+    fresh.sort_by_key(Op::key);
+
+    let mut skipped = Vec::new();
+    if let Some(first) = fresh.first() {
+        if newest.is_none_or(|n| first.key() > n) {
+            skipped = apply_sorted(&mut gb, &fresh);
+        } else {
+            let result = replay(&query_ops(tx, "")?);
+            gb = result.gradebook;
+            skipped = result
+                .skipped
+                .into_iter()
+                .filter(|(id, _)| fresh.iter().any(|o| o.op_id == *id))
+                .collect();
+        }
+        save_to(tx, &gb)?;
+    }
+    write_hlc(tx, hlc)?;
+    clear_bootstrap_flag(tx)?;
+    Ok(skipped)
+}
+
+/// One page of the server op registry, see [`Store::server_log_pull`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServerLogPage {
+    /// `(server_seq, op)` with `server_seq > since`, ascending.
+    pub ops: Vec<(i64, Op)>,
+    /// Cursor to pass as `since` next time (the last returned seq, or `since` if empty).
+    pub next: i64,
+    /// True when more ops exist after `next`.
+    pub more: bool,
+}
+
+/// Result of [`Store::server_push`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServerPush {
+    /// Per pushed op, whether the server had not seen it before.
+    pub accepted: Vec<bool>,
+    /// New ops that could not be applied to the server state, with reasons.
+    pub skipped: Vec<(OpId, String)>,
+}
+
+/// Server-side op registry (the `server_ops` table): every op the server knows, with a
+/// monotonic `server_seq` that devices use as a pull cursor. Used only by the sync server.
+impl Store {
+    /// Register ops idempotently by `op_id`. Returns, per input op, whether it was new.
+    pub fn server_log_append(&mut self, ops: &[Op]) -> Result<Vec<bool>, StoreError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let out = server_log_append_in(&tx, ops)?;
+        tx.commit()?;
+        Ok(out)
+    }
+
+    /// Highest assigned `server_seq` (0 when empty).
+    pub fn server_log_head(&self) -> Result<i64, StoreError> {
+        Ok(self.conn.query_row(
+            "SELECT COALESCE(MAX(server_seq), 0) FROM server_ops",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Ops after cursor `since`, at most `limit` (at least 1).
+    pub fn server_log_pull(&self, since: i64, limit: usize) -> Result<ServerLogPage, StoreError> {
+        let limit = limit.max(1);
+        let fetch = i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX);
+        let mut stmt = self.conn.prepare(
+            "SELECT server_seq, op_json FROM server_ops WHERE server_seq > ?1
+             ORDER BY server_seq LIMIT ?2",
+        )?;
+        let mut rows = stmt.query(params![since, fetch])?;
+        let mut ops = Vec::new();
+        while let Some(row) = rows.next()? {
+            let seq: i64 = row.get(0)?;
+            let json: String = row.get(1)?;
+            ops.push((seq, serde_json::from_str::<Op>(&json)?));
+        }
+        let more = ops.len() > limit;
+        ops.truncate(limit);
+        let next = ops.last().map_or(since, |(seq, _)| *seq);
+        Ok(ServerLogPage { ops, next, more })
+    }
+
+    /// Server push: register `ops` in the registry (idempotent by `op_id`) and merge them into
+    /// this store's own state, in one transaction. Returns per-op "was new" flags and the new
+    /// ops that could not be applied.
+    pub fn server_push(&mut self, ops: Vec<Op>, now_ms: u64) -> Result<ServerPush, StoreError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let accepted = server_log_append_in(&tx, &ops)?;
+        let skipped = apply_remote_in(&tx, ops, now_ms)?;
+        tx.commit()?;
+        Ok(ServerPush { accepted, skipped })
+    }
+
+    /// Register this store's own locally created ops (from `transact`) in the registry so
+    /// devices can pull them, and mark them as pushed. Returns how many were registered.
+    pub fn server_log_register_local(&mut self) -> Result<usize, StoreError> {
+        let local = self.unpushed_ops()?;
+        if local.is_empty() {
+            return Ok(0);
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        server_log_append_in(&tx, &local)?;
+        for op in &local {
+            tx.execute(
+                "UPDATE ops SET pushed = 1 WHERE op_id = ?1",
+                params![op.op_id.0.to_string()],
+            )?;
+        }
+        tx.commit()?;
+        Ok(local.len())
+    }
+}
+
+fn server_log_append_in(conn: &Connection, ops: &[Op]) -> Result<Vec<bool>, StoreError> {
+    let mut out = Vec::with_capacity(ops.len());
+    for op in ops {
+        let n = conn.execute(
+            "INSERT OR IGNORE INTO server_ops (op_id, op_json) VALUES (?1, ?2)",
+            params![op.op_id.0.to_string(), serde_json::to_string(op)?],
+        )?;
+        out.push(n > 0);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -904,6 +1029,70 @@ mod tests {
             assert_eq!(a.load().unwrap().terms.len(), 3);
             assert_eq!(a.ops().unwrap(), b.ops().unwrap());
         }
+    }
+
+    #[test]
+    fn server_push_is_idempotent_and_assigns_monotonic_seqs() {
+        let mut dev = Store::open_in_memory().unwrap();
+        let mut server = Store::open_in_memory().unwrap();
+        run(&mut dev, 1000, add_term_cmd("Fall")).unwrap();
+        run(&mut dev, 1001, add_term_cmd("Spring")).unwrap();
+        let ops = dev.unpushed_ops().unwrap();
+        let first = server.server_push(ops.clone(), 2000).unwrap();
+        assert_eq!(first.accepted, vec![true, true]);
+        assert!(first.skipped.is_empty());
+        let again = server.server_push(ops.clone(), 2001).unwrap();
+        assert_eq!(again.accepted, vec![false, false]);
+        assert_eq!(server.server_log_head().unwrap(), 2);
+        assert_eq!(server.load().unwrap(), dev.load().unwrap());
+        let page = server.server_log_pull(0, 100).unwrap();
+        assert_eq!(page.ops.iter().map(|(s, _)| *s).collect::<Vec<_>>(), [1, 2]);
+        assert_eq!(page.next, 2);
+        assert!(!page.more);
+        assert_eq!(
+            ids_of(&page.ops.into_iter().map(|(_, o)| o).collect::<Vec<_>>()),
+            ids_of(&ops)
+        );
+    }
+
+    #[test]
+    fn server_log_pull_pages_with_cursor() {
+        let mut dev = Store::open_in_memory().unwrap();
+        let mut server = Store::open_in_memory().unwrap();
+        for (i, name) in ["a", "b", "c"].into_iter().enumerate() {
+            run(&mut dev, 1000 + i as u64, add_term_cmd(name)).unwrap();
+        }
+        server
+            .server_push(dev.unpushed_ops().unwrap(), 2000)
+            .unwrap();
+        let p1 = server.server_log_pull(0, 2).unwrap();
+        assert_eq!((p1.ops.len(), p1.next, p1.more), (2, 2, true));
+        let p2 = server.server_log_pull(p1.next, 2).unwrap();
+        assert_eq!((p2.ops.len(), p2.next, p2.more), (1, 3, false));
+        let p3 = server.server_log_pull(p2.next, 2).unwrap();
+        assert_eq!((p3.ops.len(), p3.next, p3.more), (0, 3, false));
+        // limit 0 is treated as 1.
+        assert_eq!(server.server_log_pull(0, 0).unwrap().ops.len(), 1);
+    }
+
+    #[test]
+    fn server_local_ops_are_registered_once_and_reach_devices() {
+        let mut server = Store::open_in_memory().unwrap();
+        let mut dev = Store::open_in_memory().unwrap();
+        run(&mut server, 1000, add_term_cmd("FromServer")).unwrap();
+        assert_eq!(server.server_log_register_local().unwrap(), 1);
+        assert_eq!(server.server_log_register_local().unwrap(), 0);
+        let page = server.server_log_pull(0, 100).unwrap();
+        dev.apply_remote_ops(page.ops.into_iter().map(|(_, o)| o).collect(), 1001)
+            .unwrap();
+        assert_eq!(dev.load().unwrap(), server.load().unwrap());
+        // Ops pushed by devices are not re-registered as the server's own.
+        run(&mut dev, 1002, add_term_cmd("FromDevice")).unwrap();
+        server
+            .server_push(dev.unpushed_ops().unwrap(), 1003)
+            .unwrap();
+        assert_eq!(server.server_log_register_local().unwrap(), 0);
+        assert_eq!(server.server_log_head().unwrap(), 2);
     }
 
     #[test]

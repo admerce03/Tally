@@ -105,8 +105,8 @@ Create now: `app/` with `app/src-tauri` (crate `tally-app`, workspace member) an
 
 Crates: `sync` (`tally-sync`, client) and `server` (`tally-server`, Axum).
 
-- [ ] Core: pure sync model (op, HLC, deterministic replay), `ImportGradebook` command
-- [ ] Store: op log + device id + sync cursor; every mutation through `transact` appends an op
+- [x] Core: pure sync model (op, HLC, deterministic replay), `ImportGradebook` command
+- [x] Store: op log + device id + sync cursor; every mutation through `transact` appends an op
 - [ ] Server: `/api/execute`, `/api/sync/push`, `/api/sync/pull`, MCP over streamable HTTP at `/mcp`, bearer-token auth, health check
 - [ ] Clients: `grades sync`, app "Sync now" + background sync, MCP stdio unaffected
 - [ ] Tests: two-device convergence, concurrent field edits (LWW), delete vs update, offline then sync, idempotent push
