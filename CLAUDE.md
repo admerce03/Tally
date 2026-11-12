@@ -13,13 +13,13 @@ cli/     `grades` CLI (clap); every subcommand supports --json
 server/  Axum sync server + MCP over HTTP (home server)
 ```
 
-Only create crates when their milestone starts. Do NOT scaffold `app/`, `mcp/`, or `server/` yet.
+Only create crates when their milestone starts. Milestone 4 creates `sync/` and `server/`.
 
 ## PARITY RULE (non-negotiable)
 
 **No feature exists in any UI unless it is a core `Command` first.** UI, CLI, and MCP are thin adapters over core Commands. Never put grade math or business logic in an adapter. If a person can do it, an LLM must be able to do it through the same Command.
 
-## Current milestone: 1 — core + cli (complete)
+## Milestone 1 — core + cli (complete)
 
 Create now: `core` (full), `store` (optional, minimal: SQLite persistence only, no sync yet), `cli`.
 
@@ -66,6 +66,61 @@ Required edge-case tests:
 
 **GPA (editable scale):** A/A+ 4.0, A- 3.7, B+ 3.3, B 3.0, B- 2.7, C+ 2.3, C 2.0, C- 1.7, D+ 1.3, D 1.0, F 0.
 Cumulative = sum(points x credits) / sum(credits). Exclude pass/fail, withdrawals, and retaken courses.
+
+## Milestone 2 — local MCP (stdio) (complete)
+
+Create now: `mcp` crate (`tally-mcp` binary), stdio transport via `rmcp`.
+
+- [x] Every core `Command` is an MCP tool (1:1, generated, so no drift), plus core `Resolve` for name -> id
+- [x] Tools run through `Store::transact`, return `CommandOutput` as JSON (structured + text); errors are tool errors, not crashes
+- [x] Shared DB path resolution lives in `store` (CLI and MCP agree)
+- [x] Integration test drives the server over stdio (initialize, list tools, call tools)
+- [x] Hermes Agent / generic MCP client config documented in README
+
+### MCP design
+
+- **Schemas:** core derives `schemars::JsonSchema` behind an optional `schema` feature (core stays dependency-light for other users). The `mcp` crate takes the `Command` enum schema (internally tagged by `command`), splits it into one tool per variant (tool name = tag, input schema = variant fields without the tag), and on call re-inserts the tag and deserializes into `Command`. Adding a Command automatically adds a tool.
+- **Descriptions:** each `Command` variant has a `///` doc comment; schemars carries it into the tool description, so docs live in core.
+- **Refs:** tools take UUIDs. Agents get ids from `Created` outputs, list/show queries, or the `resolve` tool (core `Command::Resolve { kind, reference, course, scenario }`, using the same resolution order as the CLI).
+- **Concurrency:** each tool call is one `Store::transact`; CLI and MCP can run against the same DB at once.
+
+## Milestone 3 — desktop app (Tauri 2, Windows + macOS) (complete)
+
+Create now: `app/` with `app/src-tauri` (crate `tally-app`, workspace member) and `app/ui` (frontend).
+
+- [x] Backend: one generic Tauri command `execute(command) -> CommandOutput` over `Store::transact` (same path as MCP); DB path from `store::resolve_db_path`
+- [x] TypeScript types for `Command` / `CommandOutput` generated from the core JSON schema (no hand-written drift)
+- [x] Views: terms/courses sidebar; course page (current/projected/letter, categories + assignments with inline score editing, curves, cutoffs); target solver panel; what-if scenarios (toggle a scenario to view through it, compare side by side incl. GPA); analysis (impact, leverage, trend chart); GPA page (per term, cumulative, exclusions, scale editor)
+- [x] Modern minimalist design, light + dark (prefers-color-scheme), keyboard friendly
+- [x] Fresh clone: `cargo fmt/clippy/test --workspace` pass without running npm first
+- [x] README: dev + build instructions for Windows and macOS
+
+### App design
+
+- **Parity:** the UI never computes grades. Every number shown comes from a `CommandOutput`. The UI only builds `Command` JSON (UUIDs via `crypto.randomUUID()`) and renders results.
+- **Frontend:** Svelte 5 + Vite + TypeScript, no UI kit; charts are hand-drawn SVG (no chart library). Tauri CLI comes from the `@tauri-apps/cli` npm dev dependency (no global install).
+- **Refresh:** after any mutation the UI re-queries what it shows; there is no client-side cache of grade math.
+- **Design guidelines:** `app/ui/DESIGN.md` (Apple-HIG-style: one tool per job, settings for set-once things, edit in place, type-driven hierarchy). Read it before any UI change and keep it current when a design decision changes.
+
+## Current milestone: 4 — sync server + remote MCP (home server, Tailscale)
+
+Crates: `sync` (`tally-sync`, client) and `server` (`tally-server`, Axum).
+
+- [x] Core: pure sync model (op, HLC, deterministic replay), `ImportGradebook` command
+- [x] Store: op log + device id + sync cursor; every mutation through `transact` appends an op
+- [x] Server: `/api/execute`, `/api/sync/push`, `/api/sync/pull`, MCP over streamable HTTP at `/mcp`, bearer-token auth, health check
+- [x] Clients: `grades sync`, app "Sync now" + background sync, MCP stdio unaffected
+- [x] Tests: two-device convergence, concurrent field edits (LWW), delete vs update, offline then sync, idempotent push
+- [x] README: home-server deployment (Tailscale, systemd/launchd examples as docs, not scripts) and Hermes Agent remote MCP config
+
+### Sync design
+
+- **Ops, not state:** an `Op { op_id: Uuid, device_id: Uuid, hlc: Hlc, command: Command }` is appended for every successful mutation. State on every device and on the server = deterministic replay of all known ops sorted by `(hlc, device_id, op_id)`, starting from an empty `Gradebook`. A command that fails during replay (e.g. updating a deleted assignment) is skipped, the same way on every device. Updates touch only the fields they set, so replay order gives last-write-wins per field; a later delete beats an earlier update, and an update after a delete is a no-op.
+- **HLC:** hybrid logical clock `{ wall_ms: u64, counter: u32 }`, pure functions in core (`tick(local, now_ms)`, `recv(local, remote, now_ms)`); adapters pass the wall clock in. Core stays clock-free.
+- **Replay cost:** gradebooks are small; full replay is fine. Store caches the materialized gradebook and only replays when ops arrive out of order (incoming hlc < newest local hlc); otherwise it applies new ops incrementally.
+- **Bootstrap:** an existing gradebook with an empty op log emits one `ImportGradebook { gradebook }` op (replaces the whole state at its HLC) the first time sync is enabled.
+- **Server:** stores ops with a monotonic `server_seq`; `push` is idempotent by `op_id`; `pull?since=<seq>` returns ops after the cursor. The server is also a device: `/api/execute` and `/mcp` run Commands through the same op-appending path, so the web UI and Hermes see and create synced data.
+- **Auth:** `Authorization: Bearer <token>` on every route except `/health`; token from `TALLY_TOKEN` or a file. Default bind `127.0.0.1:7878`; bind to the Tailscale address explicitly. CORS allows the app's origins only.
 
 ## Design decisions (milestone 1)
 
@@ -144,4 +199,4 @@ Do tiny edits (a few lines) directly instead of delegating. Keep replies brief: 
 
 ## Later milestones (do not build yet)
 
-2. Local MCP (stdio). 3. Desktop app (Tauri 2, Windows + macOS). 4. Sync server + remote MCP on home server (Tailscale). Sync design: local SQLite per device, every Command appended to an op log (timestamp + device id), push/pull to server, last-write-wins per field. 5. iOS app; optional Canvas LMS import.
+5. iOS app; optional Canvas LMS import.

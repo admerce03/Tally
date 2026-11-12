@@ -1,0 +1,1782 @@
+{
+  "$defs": {
+    "Assignment": {
+      "properties": {
+        "curves": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssignmentCurve"
+          },
+          "type": "array"
+        },
+        "due": {
+          "default": null,
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "points_possible": {
+          "format": "double",
+          "type": "number"
+        },
+        "score": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/AssignmentStatus",
+          "default": "pending"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "points_possible"
+      ],
+      "type": "object"
+    },
+    "AssignmentCurve": {
+      "description": "A curve is an assumption layered on the stored score; it never mutates it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Add N points to the score.",
+          "properties": {
+            "add_points": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "add_points"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Scale so `top_score` becomes full marks: score * possible / top_score.",
+          "properties": {
+            "scale_top_to": {
+              "properties": {
+                "top_score": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "top_score"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "scale_top_to"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Change the points possible to `new_max` (score unchanged).",
+          "properties": {
+            "set_max": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "set_max"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AssignmentStatus": {
+      "enum": [
+        "pending",
+        "submitted",
+        "graded",
+        "missing",
+        "excused"
+      ],
+      "type": "string"
+    },
+    "AssignmentView": {
+      "description": "An assignment plus flags derived by core, so adapters never re-implement grade rules.",
+      "properties": {
+        "counts_as_graded": {
+          "description": "Counted in the current grade (scored, or missing = 0; never excused).",
+          "type": "boolean"
+        },
+        "curves": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssignmentCurve"
+          },
+          "type": "array"
+        },
+        "dropped": {
+          "description": "Dropped by the category's drop-lowest rule in the current grade (curves applied).",
+          "type": "boolean"
+        },
+        "due": {
+          "default": null,
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hypothetical": {
+          "description": "Added by the scenario being viewed (never true without a scenario).",
+          "type": "boolean"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "points_possible": {
+          "format": "double",
+          "type": "number"
+        },
+        "remaining": {
+          "description": "Unscored work that still counts as remaining (solver, leverage).",
+          "type": "boolean"
+        },
+        "score": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/AssignmentStatus",
+          "default": "pending"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "points_possible",
+        "remaining",
+        "counts_as_graded",
+        "dropped",
+        "hypothetical"
+      ],
+      "type": "object"
+    },
+    "Category": {
+      "properties": {
+        "assignments": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Assignment"
+          },
+          "type": "array"
+        },
+        "drop_lowest": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "weight": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "weight"
+      ],
+      "type": "object"
+    },
+    "CategoryBreakdown": {
+      "description": "Per-category part of the current grade.",
+      "properties": {
+        "average": {
+          "description": "Current category average (percent) after curves and drops; `None` without graded work.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "category_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "dropped": {
+          "description": "Graded assignments dropped by drop-lowest.",
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effective_weight": {
+          "description": "Share (percent 0-100) of the current grade this category carries after renormalizing\nover categories with graded work; 0 if it is excluded (no graded work, or weight 0).",
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "weight": {
+          "description": "Configured weight.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "category_id",
+        "name",
+        "weight",
+        "effective_weight",
+        "dropped"
+      ],
+      "type": "object"
+    },
+    "CategoryView": {
+      "properties": {
+        "assignments": {
+          "items": {
+            "$ref": "#/$defs/AssignmentView"
+          },
+          "type": "array"
+        },
+        "drop_lowest": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "weight": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "weight",
+        "drop_lowest",
+        "assignments"
+      ],
+      "type": "object"
+    },
+    "CompareCourse": {
+      "properties": {
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "current": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "current_letter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Letter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "projected": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "projected_letter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Letter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "course_id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "CompareTerm": {
+      "properties": {
+        "gpa": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "term_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term_id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "Course": {
+      "properties": {
+        "categories": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Category"
+          },
+          "type": "array"
+        },
+        "code": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "credits": {
+          "format": "double",
+          "type": "number"
+        },
+        "curve": {
+          "$ref": "#/$defs/CourseCurve",
+          "default": {
+            "add_points": 0.0,
+            "cutoff_shift": 0.0
+          }
+        },
+        "cutoffs": {
+          "$ref": "#/$defs/LetterCutoffs",
+          "default": {
+            "entries": [
+              {
+                "letter": "A",
+                "min": 93.0
+              },
+              {
+                "letter": "A-",
+                "min": 90.0
+              },
+              {
+                "letter": "B+",
+                "min": 87.0
+              },
+              {
+                "letter": "B",
+                "min": 83.0
+              },
+              {
+                "letter": "B-",
+                "min": 80.0
+              },
+              {
+                "letter": "C+",
+                "min": 77.0
+              },
+              {
+                "letter": "C",
+                "min": 73.0
+              },
+              {
+                "letter": "C-",
+                "min": 70.0
+              },
+              {
+                "letter": "D+",
+                "min": 67.0
+              },
+              {
+                "letter": "D",
+                "min": 63.0
+              },
+              {
+                "letter": "F",
+                "min": 0.0
+              }
+            ]
+          }
+        },
+        "gpa_status": {
+          "$ref": "#/$defs/GpaStatus",
+          "default": "normal"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "official_letter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Letter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "target": {
+          "default": null,
+          "description": "Target final grade as a percent (0-100).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "credits"
+      ],
+      "type": "object"
+    },
+    "CourseCurve": {
+      "properties": {
+        "add_points": {
+          "default": 0.0,
+          "description": "Added to the final percent.",
+          "format": "double",
+          "type": "number"
+        },
+        "cutoff_shift": {
+          "default": 0.0,
+          "description": "Subtracted from every letter cutoff.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "CourseGpaEntry": {
+      "properties": {
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "credits": {
+          "format": "double",
+          "type": "number"
+        },
+        "exclusion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExclusionReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "included": {
+          "type": "boolean"
+        },
+        "letter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Letter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "points": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "course_id",
+        "name",
+        "credits",
+        "included"
+      ],
+      "type": "object"
+    },
+    "CourseGradeReport": {
+      "properties": {
+        "categories": {
+          "description": "How the current grade is made up, per category (course order).",
+          "items": {
+            "$ref": "#/$defs/CategoryBreakdown"
+          },
+          "type": "array"
+        },
+        "course_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "current": {
+          "description": "Renormalized over categories with graded work; `None` if no graded work.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "current_letter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Letter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "curve_mode": {
+          "$ref": "#/$defs/CurveMode"
+        },
+        "projected": {
+          "description": "Full weights, remaining work as 0.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "projected_letter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Letter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "course_id",
+        "curve_mode",
+        "categories"
+      ],
+      "type": "object"
+    },
+    "CourseSummary": {
+      "properties": {
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "credits": {
+          "format": "double",
+          "type": "number"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "credits"
+      ],
+      "type": "object"
+    },
+    "CourseView": {
+      "description": "A course with derived flags on every assignment (output of `show_course`).",
+      "properties": {
+        "categories": {
+          "items": {
+            "$ref": "#/$defs/CategoryView"
+          },
+          "type": "array"
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "credits": {
+          "format": "double",
+          "type": "number"
+        },
+        "curve": {
+          "$ref": "#/$defs/CourseCurve"
+        },
+        "cutoffs": {
+          "$ref": "#/$defs/LetterCutoffs"
+        },
+        "gpa_status": {
+          "$ref": "#/$defs/GpaStatus"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "official_letter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Letter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "credits",
+        "cutoffs",
+        "curve",
+        "gpa_status",
+        "categories"
+      ],
+      "type": "object"
+    },
+    "CumulativeGpaReport": {
+      "properties": {
+        "credits": {
+          "format": "double",
+          "type": "number"
+        },
+        "gpa": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/TermGpaReport"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "credits",
+        "terms"
+      ],
+      "type": "object"
+    },
+    "CurveMode": {
+      "enum": [
+        "apply",
+        "ignore"
+      ],
+      "type": "string"
+    },
+    "CutoffEntry": {
+      "description": "One letter's minimum percent.",
+      "properties": {
+        "letter": {
+          "$ref": "#/$defs/Letter"
+        },
+        "min": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "letter",
+        "min"
+      ],
+      "type": "object"
+    },
+    "EntityKind": {
+      "description": "What an Add* command created.",
+      "enum": [
+        "term",
+        "course",
+        "category",
+        "assignment",
+        "scenario"
+      ],
+      "type": "string"
+    },
+    "ExclusionReason": {
+      "enum": [
+        "pass_fail",
+        "withdrawn",
+        "retaken",
+        "zero_credits",
+        "no_grade"
+      ],
+      "type": "string"
+    },
+    "GpaEntry": {
+      "description": "Grade points for one letter.",
+      "properties": {
+        "letter": {
+          "$ref": "#/$defs/Letter"
+        },
+        "points": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "letter",
+        "points"
+      ],
+      "type": "object"
+    },
+    "GpaScale": {
+      "description": "Letter to grade points (editable).",
+      "properties": {
+        "points": {
+          "items": {
+            "$ref": "#/$defs/GpaEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "points"
+      ],
+      "type": "object"
+    },
+    "GpaStatus": {
+      "enum": [
+        "normal",
+        "pass_fail",
+        "withdrawn",
+        "retaken"
+      ],
+      "type": "string"
+    },
+    "Gradebook": {
+      "properties": {
+        "scale": {
+          "$ref": "#/$defs/GpaScale",
+          "default": {
+            "points": [
+              {
+                "letter": "A+",
+                "points": 4.0
+              },
+              {
+                "letter": "A",
+                "points": 4.0
+              },
+              {
+                "letter": "A-",
+                "points": 3.7
+              },
+              {
+                "letter": "B+",
+                "points": 3.3
+              },
+              {
+                "letter": "B",
+                "points": 3.0
+              },
+              {
+                "letter": "B-",
+                "points": 2.7
+              },
+              {
+                "letter": "C+",
+                "points": 2.3
+              },
+              {
+                "letter": "C",
+                "points": 2.0
+              },
+              {
+                "letter": "C-",
+                "points": 1.7
+              },
+              {
+                "letter": "D+",
+                "points": 1.3
+              },
+              {
+                "letter": "D",
+                "points": 1.0
+              },
+              {
+                "letter": "F",
+                "points": 0.0
+              }
+            ]
+          }
+        },
+        "scenarios": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Scenario"
+          },
+          "type": "array"
+        },
+        "terms": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Term"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ImpactEntry": {
+      "properties": {
+        "assignment_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "delta": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "due": {
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "grade_after": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "grade_before": {
+          "description": "Running grade before this assignment was graded; `None` for the first graded work.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assignment_id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "Letter": {
+      "enum": [
+        "A+",
+        "A",
+        "A-",
+        "B+",
+        "B",
+        "B-",
+        "C+",
+        "C",
+        "C-",
+        "D+",
+        "D",
+        "F"
+      ],
+      "type": "string"
+    },
+    "LetterCutoffs": {
+      "description": "Minimum percent for each letter. Letters without an entry are never awarded (F is the fallback).",
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/CutoffEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "type": "object"
+    },
+    "LeverageEntry": {
+      "properties": {
+        "assignment_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "category_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "leverage": {
+          "description": "Final-grade points gained per 10% scored on this assignment.",
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assignment_id",
+        "name",
+        "category_id",
+        "leverage"
+      ],
+      "type": "object"
+    },
+    "LeverageReport": {
+      "properties": {
+        "baseline_used": {
+          "format": "double",
+          "type": "number"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/LeverageEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "baseline_used",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "NeededScore": {
+      "description": "The score one remaining assignment needs under the uniform solve.",
+      "properties": {
+        "assignment_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "needed_points": {
+          "description": "Raw points needed (needed percent x points_possible / 100). 0 when Secured. None when unreachable even at the search cap or nothing to solve.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "points_possible": {
+          "description": "The assignment's original points possible (before assignment curves).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "assignment_id",
+        "points_possible"
+      ],
+      "type": "object"
+    },
+    "Override": {
+      "oneOf": [
+        {
+          "properties": {
+            "assignment_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "score": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "set_score",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "assignment_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "assignment_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/AssignmentStatus"
+            },
+            "type": {
+              "const": "set_status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "assignment_id",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "assignment": {
+              "$ref": "#/$defs/Assignment"
+            },
+            "category_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "add_assignment",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "category_id",
+            "assignment"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "assignment_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "curves": {
+              "items": {
+                "$ref": "#/$defs/AssignmentCurve"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "set_assignment_curves",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "assignment_id",
+            "curves"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "course_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "curve": {
+              "$ref": "#/$defs/CourseCurve"
+            },
+            "type": {
+              "const": "set_course_curve",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "course_id",
+            "curve"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "course_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "gpa_status": {
+              "$ref": "#/$defs/GpaStatus"
+            },
+            "type": {
+              "const": "set_gpa_status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "course_id",
+            "gpa_status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "course_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "letter": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Letter"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "type": {
+              "const": "set_official_letter",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "course_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Scenario": {
+      "description": "What-if scenario: named overlay of hypothetical changes (see `scenario::apply_scenario`).",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "overrides": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Override"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ScenarioColumn": {
+      "description": "One column of a comparison: the real data (`scenario_id: None`) or a scenario.",
+      "properties": {
+        "courses": {
+          "items": {
+            "$ref": "#/$defs/CompareCourse"
+          },
+          "type": "array"
+        },
+        "cumulative_gpa": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "error": {
+          "default": null,
+          "description": "Set when the scenario failed to apply; the result fields are then empty/None.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "\"real\" for the baseline, else the scenario name.",
+          "type": "string"
+        },
+        "scenario_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/CompareTerm"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "courses",
+        "terms"
+      ],
+      "type": "object"
+    },
+    "SolveResult": {
+      "properties": {
+        "grade_at_needed": {
+          "description": "Final grade when remaining work scores `needed` (Secured: grade at 0%).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "needed_scores": {
+          "description": "One entry per remaining assignment, in course list order; empty when there is no remaining work.",
+          "items": {
+            "$ref": "#/$defs/NeededScore"
+          },
+          "type": "array"
+        },
+        "remaining_count": {
+          "description": "Ungraded, non-excused, non-locked assignments with points possible > 0.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/SolveStatus"
+        },
+        "target_percent": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "status",
+        "target_percent",
+        "remaining_count",
+        "needed_scores"
+      ],
+      "type": "object"
+    },
+    "SolveStatus": {
+      "oneOf": [
+        {
+          "description": "Target is met even if all remaining work scores 0.",
+          "properties": {
+            "state": {
+              "const": "secured",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Reachable: every remaining assignment needs `needed` percent (0-100).",
+          "properties": {
+            "needed": {
+              "format": "double",
+              "type": "number"
+            },
+            "state": {
+              "const": "on_track",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "needed"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Needs more than 100% (`Some`, up to the search cap).\n\n`needed: None` covers two cases: there is no remaining work to solve for, or the target\nis unreachable even at the search cap (1000%). Callers distinguish them via\n`SolveResult::remaining_count` (0 means no remaining work).",
+          "properties": {
+            "needed": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "state": {
+              "const": "unreachable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Term": {
+      "properties": {
+        "courses": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Course"
+          },
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "year": {
+          "default": null,
+          "description": "Academic year the term belongs to (e.g. 2026), set by the user; used to group and sort\nterms. `None` when not set.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "TermGpaReport": {
+      "properties": {
+        "courses": {
+          "items": {
+            "$ref": "#/$defs/CourseGpaEntry"
+          },
+          "type": "array"
+        },
+        "credits": {
+          "format": "double",
+          "type": "number"
+        },
+        "gpa": {
+          "description": "`None` when no course has eligible credits.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "term_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term_id",
+        "name",
+        "credits",
+        "courses"
+      ],
+      "type": "object"
+    },
+    "TermSummary": {
+      "properties": {
+        "courses": {
+          "items": {
+            "$ref": "#/$defs/CourseSummary"
+          },
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "year": {
+          "description": "Academic year, when set (`set_term_year`).",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "courses"
+      ],
+      "type": "object"
+    },
+    "TrendPoint": {
+      "properties": {
+        "date": {
+          "description": "`None` is the single trailing point for undated work.",
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "grade": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "grade"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "result": {
+          "const": "done",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Returned by every Add* command so callers can chain on the new id.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/EntityKind"
+        },
+        "result": {
+          "const": "created",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "result": {
+          "const": "terms",
+          "type": "string"
+        },
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/TermSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "result",
+        "terms"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "course": {
+          "$ref": "#/$defs/CourseView"
+        },
+        "result": {
+          "const": "course",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "course"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "report": {
+          "$ref": "#/$defs/CourseGradeReport"
+        },
+        "result": {
+          "const": "course_grade",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "report"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "result": {
+          "const": "solve",
+          "type": "string"
+        },
+        "solve": {
+          "$ref": "#/$defs/SolveResult"
+        }
+      },
+      "required": [
+        "result",
+        "solve"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/ImpactEntry"
+          },
+          "type": "array"
+        },
+        "result": {
+          "const": "impact",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "entries"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "points": {
+          "items": {
+            "$ref": "#/$defs/TrendPoint"
+          },
+          "type": "array"
+        },
+        "result": {
+          "const": "trends",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "points"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "report": {
+          "$ref": "#/$defs/LeverageReport"
+        },
+        "result": {
+          "const": "leverage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "report"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "result": {
+          "const": "scenarios",
+          "type": "string"
+        },
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/Scenario"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "result",
+        "scenarios"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ScenarioColumn"
+          },
+          "type": "array"
+        },
+        "result": {
+          "const": "comparison",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "columns"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "report": {
+          "$ref": "#/$defs/TermGpaReport"
+        },
+        "result": {
+          "const": "term_gpa",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "report"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "report": {
+          "$ref": "#/$defs/CumulativeGpaReport"
+        },
+        "result": {
+          "const": "cumulative_gpa",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "report"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "result": {
+          "const": "gpa_scale",
+          "type": "string"
+        },
+        "scale": {
+          "$ref": "#/$defs/GpaScale"
+        }
+      },
+      "required": [
+        "result",
+        "scale"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "gradebook": {
+          "$ref": "#/$defs/Gradebook"
+        },
+        "result": {
+          "const": "gradebook",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "gradebook"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/EntityKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "result": {
+          "const": "resolved",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result",
+        "kind",
+        "id",
+        "name"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "CommandOutput"
+}

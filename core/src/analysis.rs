@@ -9,6 +9,7 @@ use crate::ids::{AssignmentId, CategoryId};
 use crate::model::{Assignment, AssignmentStatus, Course, CurveMode};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ImpactEntry {
     pub assignment_id: AssignmentId,
     pub name: String,
@@ -20,6 +21,7 @@ pub struct ImpactEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TrendPoint {
     /// `None` is the single trailing point for undated work.
     pub date: Option<NaiveDate>,
@@ -27,6 +29,7 @@ pub struct TrendPoint {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LeverageEntry {
     pub assignment_id: AssignmentId,
     pub name: String,
@@ -36,6 +39,7 @@ pub struct LeverageEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LeverageReport {
     pub baseline_used: f64,
     pub entries: Vec<LeverageEntry>,

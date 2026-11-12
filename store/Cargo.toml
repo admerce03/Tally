@@ -8,7 +8,9 @@ license.workspace = true
 name = "tally_store"
 
 [dependencies]
+dirs = "6"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde_json.workspace = true
 thiserror.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 tally-core = { path = "../core" }

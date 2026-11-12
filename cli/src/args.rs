@@ -51,14 +51,54 @@ pub enum Top {
     Trends(AnalysisArgs),
     /// Final-grade change per 10% scored on each remaining assignment.
     Leverage(LeverageArgs),
+    /// Replace the whole gradebook with the contents of an exported JSON file.
+    Import(ImportArgs),
+    /// Print the whole gradebook as JSON (backup; re-importable).
+    Export,
+    /// Resolve a name, code or UUID (prefix) to an id.
+    Resolve(ResolveArgs),
+    /// Sync this database with a tally-server (push local changes, pull remote ones).
+    Sync(SyncArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ImportArgs {
+    /// Path to a JSON file produced by `grades export`.
+    pub file: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ResolveArgs {
+    /// term, course, category, assignment or scenario.
+    pub kind: tally_core::EntityKind,
+    /// Name, code, UUID or unique UUID prefix.
+    pub reference: String,
+    /// Course to search in (required for category; narrows assignment).
+    #[arg(long)]
+    pub course: Option<String>,
+    /// Also search this scenario's hypothetical assignments.
+    #[arg(long)]
+    pub scenario: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum TermCmd {
-    Add { name: String },
+    Add {
+        name: String,
+    },
     List,
-    Rename { term: String, name: String },
-    Rm { term: String },
+    Rename {
+        term: String,
+        name: String,
+    },
+    /// Set the academic year a term belongs to (omit the year to clear it).
+    Year {
+        term: String,
+        year: Option<i32>,
+    },
+    Rm {
+        term: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -76,6 +116,9 @@ pub enum CourseCmd {
     },
     Show {
         course: String,
+        /// Show the course as this what-if scenario sees it.
+        #[arg(long)]
+        scenario: Option<String>,
     },
     Update {
         course: String,
@@ -372,4 +415,21 @@ pub fn parse_gpa_status(s: &str) -> Result<GpaStatus, String> {
     serde_json::from_value(serde_json::Value::String(key)).map_err(|_| {
         format!("invalid gpa status '{s}' (expected normal, pass-fail, withdrawn, retaken)")
     })
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SyncArgs {
+    /// Server base URL, e.g. http://100.64.0.1:7878 (else TALLY_SERVER, else the config file).
+    #[arg(long)]
+    pub server: Option<String>,
+    /// Bearer token (else TALLY_TOKEN; prefer --token-file, flags show up in process lists).
+    #[arg(long)]
+    pub token: Option<String>,
+    /// File holding the bearer token (else TALLY_TOKEN_FILE).
+    #[arg(long, value_name = "PATH")]
+    pub token_file: Option<PathBuf>,
+    /// Save the resolved server and token to the sync config file (TALLY_SYNC_CONFIG, else
+    /// <user config dir>/Tally/sync.json). WARNING: the token is stored in plain text.
+    #[arg(long)]
+    pub save: bool,
 }

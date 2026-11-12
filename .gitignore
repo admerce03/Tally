@@ -9,3 +9,7 @@
 Thumbs.db
 .vscode/
 .idea/
+
+node_modules/
+app/ui/dist/
+app/src-tauri/gen/

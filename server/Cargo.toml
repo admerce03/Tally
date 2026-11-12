@@ -1,0 +1,30 @@
+[package]
+name = "tally-server"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "tally_server"
+
+[[bin]]
+name = "tally-server"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+rmcp = { version = "3.9", default-features = false, features = ["server", "transport-streamable-http-server"] }
+serde.workspace = true
+serde_json.workspace = true
+tally-core = { path = "../core", features = ["schema"] }
+tally-mcp = { path = "../mcp" }
+tally-store = { path = "../store" }
+tally-sync = { path = "../sync", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tower-http = { version = "0.6", features = ["cors"] }
+
+[dev-dependencies]
+tally-sync = { path = "../sync" }
+tower = { version = "0.5", features = ["util"] }

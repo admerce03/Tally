@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{AssignmentId, CategoryId, CourseId, ScenarioId, TermId};
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Gradebook {
     #[serde(default)]
     pub terms: Vec<Term>,
@@ -67,9 +68,14 @@ impl Gradebook {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Term {
     pub id: TermId,
     pub name: String,
+    /// Academic year the term belongs to (e.g. 2026), set by the user; used to group and sort
+    /// terms. `None` when not set.
+    #[serde(default)]
+    pub year: Option<i32>,
     #[serde(default)]
     pub courses: Vec<Course>,
 }
@@ -79,12 +85,14 @@ impl Term {
         Self {
             id,
             name: name.into(),
+            year: None,
             courses: Vec::new(),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GpaStatus {
     #[default]
@@ -95,6 +103,7 @@ pub enum GpaStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Course {
     pub id: CourseId,
     pub name: String,
@@ -134,6 +143,7 @@ impl Course {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Category {
     pub id: CategoryId,
     pub name: String,
@@ -157,6 +167,7 @@ impl Category {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AssignmentStatus {
     #[default]
@@ -169,6 +180,7 @@ pub enum AssignmentStatus {
 
 /// A curve is an assumption layered on the stored score; it never mutates it.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AssignmentCurve {
     /// Add N points to the score.
@@ -180,6 +192,7 @@ pub enum AssignmentCurve {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Assignment {
     pub id: AssignmentId,
     pub name: String,
@@ -209,6 +222,7 @@ impl Assignment {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CourseCurve {
     /// Added to the final percent.
     #[serde(default)]
@@ -219,6 +233,7 @@ pub struct CourseCurve {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CurveMode {
     #[default]
@@ -227,6 +242,7 @@ pub enum CurveMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Letter {
     #[serde(rename = "A+")]
     APlus,
@@ -297,86 +313,109 @@ impl std::str::FromStr for Letter {
     }
 }
 
+/// One letter's minimum percent.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct CutoffEntry {
+    pub letter: Letter,
+    pub min: f64,
+}
+
 /// Minimum percent for each letter. Letters without an entry are never awarded (F is the fallback).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LetterCutoffs {
-    pub entries: Vec<(Letter, f64)>,
+    pub entries: Vec<CutoffEntry>,
 }
 
 impl LetterCutoffs {
     pub fn get(&self, letter: Letter) -> Option<f64> {
         self.entries
             .iter()
-            .find(|(l, _)| *l == letter)
-            .map(|(_, v)| *v)
+            .find(|e| e.letter == letter)
+            .map(|e| e.min)
     }
 
     pub fn set(&mut self, letter: Letter, value: f64) {
-        match self.entries.iter_mut().find(|(l, _)| *l == letter) {
-            Some(e) => e.1 = value,
-            None => self.entries.push((letter, value)),
+        match self.entries.iter_mut().find(|e| e.letter == letter) {
+            Some(e) => e.min = value,
+            None => self.entries.push(CutoffEntry { letter, min: value }),
         }
     }
 }
 
 impl Default for LetterCutoffs {
     fn default() -> Self {
+        let e = |letter, min| CutoffEntry { letter, min };
         Self {
             entries: vec![
-                (Letter::A, 93.0),
-                (Letter::AMinus, 90.0),
-                (Letter::BPlus, 87.0),
-                (Letter::B, 83.0),
-                (Letter::BMinus, 80.0),
-                (Letter::CPlus, 77.0),
-                (Letter::C, 73.0),
-                (Letter::CMinus, 70.0),
-                (Letter::DPlus, 67.0),
-                (Letter::D, 63.0),
-                (Letter::F, 0.0),
+                e(Letter::A, 93.0),
+                e(Letter::AMinus, 90.0),
+                e(Letter::BPlus, 87.0),
+                e(Letter::B, 83.0),
+                e(Letter::BMinus, 80.0),
+                e(Letter::CPlus, 77.0),
+                e(Letter::C, 73.0),
+                e(Letter::CMinus, 70.0),
+                e(Letter::DPlus, 67.0),
+                e(Letter::D, 63.0),
+                e(Letter::F, 0.0),
             ],
         }
     }
 }
 
+/// Grade points for one letter.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct GpaEntry {
+    pub letter: Letter,
+    pub points: f64,
+}
+
 /// Letter to grade points (editable).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GpaScale {
-    pub points: Vec<(Letter, f64)>,
+    pub points: Vec<GpaEntry>,
 }
 
 impl GpaScale {
     pub fn get(&self, letter: Letter) -> Option<f64> {
         self.points
             .iter()
-            .find(|(l, _)| *l == letter)
-            .map(|(_, v)| *v)
+            .find(|e| e.letter == letter)
+            .map(|e| e.points)
     }
 
     pub fn set(&mut self, letter: Letter, value: f64) {
-        match self.points.iter_mut().find(|(l, _)| *l == letter) {
-            Some(e) => e.1 = value,
-            None => self.points.push((letter, value)),
+        match self.points.iter_mut().find(|e| e.letter == letter) {
+            Some(e) => e.points = value,
+            None => self.points.push(GpaEntry {
+                letter,
+                points: value,
+            }),
         }
     }
 }
 
 impl Default for GpaScale {
     fn default() -> Self {
+        let e = |letter, points| GpaEntry { letter, points };
         Self {
             points: vec![
-                (Letter::APlus, 4.0),
-                (Letter::A, 4.0),
-                (Letter::AMinus, 3.7),
-                (Letter::BPlus, 3.3),
-                (Letter::B, 3.0),
-                (Letter::BMinus, 2.7),
-                (Letter::CPlus, 2.3),
-                (Letter::C, 2.0),
-                (Letter::CMinus, 1.7),
-                (Letter::DPlus, 1.3),
-                (Letter::D, 1.0),
-                (Letter::F, 0.0),
+                e(Letter::APlus, 4.0),
+                e(Letter::A, 4.0),
+                e(Letter::AMinus, 3.7),
+                e(Letter::BPlus, 3.3),
+                e(Letter::B, 3.0),
+                e(Letter::BMinus, 2.7),
+                e(Letter::CPlus, 2.3),
+                e(Letter::C, 2.0),
+                e(Letter::CMinus, 1.7),
+                e(Letter::DPlus, 1.3),
+                e(Letter::D, 1.0),
+                e(Letter::F, 0.0),
             ],
         }
     }
@@ -384,6 +423,7 @@ impl Default for GpaScale {
 
 /// What-if scenario: named overlay of hypothetical changes (see `scenario::apply_scenario`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Scenario {
     pub id: ScenarioId,
     pub name: String,
@@ -392,6 +432,7 @@ pub struct Scenario {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Override {
     SetScore {

@@ -10,6 +10,7 @@ macro_rules! id_type {
         #[derive(
             Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
         )]
+        #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
         #[serde(transparent)]
         pub struct $name(pub Uuid);
 
@@ -32,3 +33,5 @@ id_type!(CourseId);
 id_type!(CategoryId);
 id_type!(AssignmentId);
 id_type!(ScenarioId);
+id_type!(DeviceId);
+id_type!(OpId);

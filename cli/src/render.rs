@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use tally_core::gpa::{CourseGpaEntry, ExclusionReason, TermGpaReport};
 use tally_core::scenario::ScenarioColumn;
 use tally_core::solver::SolveStatus;
-use tally_core::{AssignmentStatus, CommandOutput, Course, GpaStatus, Letter};
+use tally_core::{AssignmentStatus, CommandOutput, CourseView, GpaStatus, Letter};
 use uuid::Uuid;
 
 use crate::plan::short_id;
@@ -101,16 +101,25 @@ fn table(header: &[&str], rows: &[Vec<String>]) -> String {
 pub fn render(out: &CommandOutput) -> String {
     match out {
         CommandOutput::Done => "ok".to_string(),
+        CommandOutput::Gradebook { gradebook } => {
+            serde_json::to_string_pretty(gradebook).unwrap_or_else(|e| format!("error: {e}"))
+        }
         CommandOutput::Created { kind, id: new_id } => {
             format!("added {} {}", kind.as_str(), id(*new_id))
         }
+        CommandOutput::Resolved {
+            kind,
+            id: found,
+            name,
+        } => format!("{} {} ({name})", kind.as_str(), found),
         CommandOutput::Terms { terms } => {
             if terms.is_empty() {
                 return "no terms".to_string();
             }
             let mut s = String::new();
             for t in terms {
-                let _ = writeln!(s, "{} {}", t.name, id(t.id.0));
+                let year = t.year.map(|y| format!(" ({y})")).unwrap_or_default();
+                let _ = writeln!(s, "{}{year} {}", t.name, id(t.id.0));
                 for c in &t.courses {
                     let code = c
                         .code
@@ -246,14 +255,14 @@ pub fn render(out: &CommandOutput) -> String {
             let rows: Vec<Vec<String>> = scale
                 .points
                 .iter()
-                .map(|(l, v)| vec![l.as_str().to_string(), format!("{v:.2}")])
+                .map(|e| vec![e.letter.as_str().to_string(), format!("{:.2}", e.points)])
                 .collect();
             table(&["letter", "points"], &rows)
         }
     }
 }
 
-fn render_course(c: &Course) -> String {
+fn render_course(c: &CourseView) -> String {
     let mut s = String::new();
     let code = c
         .code
@@ -278,7 +287,7 @@ fn render_course(c: &Course) -> String {
         .cutoffs
         .entries
         .iter()
-        .map(|(l, v)| format!("{} {}", l.as_str(), v))
+        .map(|e| format!("{} {}", e.letter.as_str(), e.min))
         .collect();
     let _ = writeln!(s, "cutoffs: {}", cutoffs.join(" | "));
     for cat in &c.categories {
@@ -290,7 +299,8 @@ fn render_course(c: &Course) -> String {
             cat.drop_lowest,
             id(cat.id.0)
         );
-        for a in &cat.assignments {
+        for av in &cat.assignments {
+            let a = &av.assignment;
             let score = a.score.map_or_else(|| "-".to_string(), |v| v.to_string());
             let due = a.due.map(|d| format!("  due {d}")).unwrap_or_default();
             let curves = if a.curves.is_empty() {
@@ -309,9 +319,16 @@ fn render_course(c: &Course) -> String {
                     .collect();
                 format!("  curves {}", list.join(","))
             };
+            let mut tags = String::new();
+            if av.dropped {
+                tags.push_str("  [dropped]");
+            }
+            if av.hypothetical {
+                tags.push_str("  [hypothetical]");
+            }
             let _ = writeln!(
                 s,
-                "  {}  {score}/{}{due}  {}{curves}  {}",
+                "  {}  {score}/{}{due}  {}{curves}{tags}  {}",
                 a.name,
                 a.points_possible,
                 status_word(a.status),

@@ -234,9 +234,9 @@ fn cumulative_gpa_excludes_pass_fail() {
     let scale = db.json(&["gpa", "scale"]);
     let a = scale["scale"]["points"]
         .as_array()
-        .and_then(|p| p.iter().find(|e| e[0] == "A"))
+        .and_then(|p| p.iter().find(|e| e["letter"] == "A"))
         .expect("A entry");
-    near(&a[1], 4.3);
+    near(&a["points"], 4.3);
 }
 
 #[test]
@@ -429,8 +429,8 @@ fn partial_curve_cutoff_and_scale_edits() {
         v["course"]["cutoffs"]["entries"]
             .as_array()?
             .iter()
-            .find(|e| e[0] == l)
-            .and_then(|e| e[1].as_f64())
+            .find(|e| e["letter"] == l)
+            .and_then(|e| e["min"].as_f64())
     };
     let show = db.json(&["course", "show", "Calc"]);
     assert_eq!(find(&show, "A+"), Some(97.0));
@@ -444,8 +444,8 @@ fn partial_curve_cutoff_and_scale_edits() {
     let pts = |l: &str| {
         scale["scale"]["points"]
             .as_array()
-            .and_then(|p| p.iter().find(|e| e[0] == l))
-            .and_then(|e| e[1].as_f64())
+            .and_then(|p| p.iter().find(|e| e["letter"] == l))
+            .and_then(|e| e["points"].as_f64())
     };
     assert_eq!(pts("A"), Some(4.3));
     assert_eq!(pts("B"), Some(3.1));
@@ -545,4 +545,154 @@ fn explicit_db_path_does_not_create_directories() {
         .expect("run grades");
     assert_eq!(out.status.code(), Some(1));
     assert!(!missing.parent().is_some_and(|p| p.exists()));
+}
+
+#[test]
+fn resolve_maps_to_core_command() {
+    let db = Db::new();
+    db.calc_course();
+    let t = db.json(&["resolve", "term", "fall"]);
+    assert_eq!(t["result"], "resolved");
+    assert_eq!(t["kind"], "term");
+    assert_eq!(t["name"], "Fall");
+    let c = db.json(&["resolve", "course", "M1"]);
+    assert_eq!(c["name"], "Calc");
+    let k = db.json(&["resolve", "category", "Exams", "--course", "Calc"]);
+    assert_eq!(k["kind"], "category");
+    assert_eq!(k["name"], "Exams");
+    // Category without a course is an error.
+    let out = db.run(&["resolve", "category", "Exams", "--json"]);
+    assert_ne!(out.code, 0);
+}
+
+#[test]
+fn export_then_import_round_trips_into_another_db() {
+    let src = Db::new();
+    src.calc_course();
+    let exported = src.json(&["export"]);
+    assert_eq!(exported["result"], "gradebook");
+    let file = std::env::temp_dir().join(format!("tally-export-{}.json", std::process::id()));
+    std::fs::write(&file, exported["gradebook"].to_string()).expect("write export");
+
+    let dst = Db::new();
+    let imported = dst.json(&["import", file.to_str().expect("utf8 path")]);
+    let _ = std::fs::remove_file(&file);
+    assert_eq!(imported["result"], "done");
+    assert_eq!(dst.json(&["export"]), exported);
+
+    let missing = dst.run(&["import", "definitely-missing.json"]);
+    assert_ne!(missing.code, 0);
+}
+
+/// Run `grades sync` with a clean sync environment and a config file path under our control.
+fn sync_cmd(db: &Db, config: &std::path::Path, args: &[&str]) -> Out {
+    let out = Command::new(env!("CARGO_BIN_EXE_grades"))
+        .arg("--db")
+        .arg(&db.path)
+        .args(args)
+        .env_remove("TALLY_DB")
+        .env_remove("TALLY_SERVER")
+        .env_remove("TALLY_TOKEN")
+        .env_remove("TALLY_TOKEN_FILE")
+        .env("TALLY_SYNC_CONFIG", config)
+        .output()
+        .expect("run grades");
+    Out {
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    }
+}
+
+#[test]
+fn sync_without_server_is_a_clear_json_error() {
+    let db = Db::new();
+    let config = db.path.with_extension("sync.json");
+    let out = sync_cmd(&db, &config, &["sync", "--json"]);
+    assert_ne!(out.code, 0);
+    let v: Value = serde_json::from_str(&out.stdout).expect("json error");
+    let msg = v["error"].as_str().expect("error string");
+    assert!(msg.contains("no sync server configured"), "{msg}");
+    assert!(msg.contains("TALLY_SERVER"), "{msg}");
+}
+
+#[test]
+fn sync_end_to_end_against_a_local_server() {
+    use std::sync::mpsc;
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let store = tally_store::Store::open_in_memory().expect("server store");
+            let state = tally_server::AppState::new(store, "secret-token".into(), vec![], vec![]);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind");
+            tx.send(listener.local_addr().expect("addr")).expect("send");
+            let _ = axum::serve(listener, tally_server::router(state)).await;
+        });
+    });
+    let addr = rx.recv().expect("server address");
+    let url = format!("http://{addr}");
+
+    let a = Db::new();
+    let b = Db::new();
+    let config = a.path.with_extension("sync.json");
+    a.ok(&["term", "add", "Fall"]);
+
+    // Wrong token is rejected.
+    let bad = sync_cmd(
+        &a,
+        &config,
+        &["sync", "--json", "--server", &url, "--token", "nope"],
+    );
+    assert_ne!(bad.code, 0);
+    assert!(bad.stdout.contains("error"), "{}", bad.stdout);
+
+    // Device A pushes (and saves its config); device B pulls via the saved-less flags.
+    let first = sync_cmd(
+        &a,
+        &config,
+        &[
+            "sync",
+            "--json",
+            "--server",
+            &url,
+            "--token",
+            "secret-token",
+            "--save",
+        ],
+    );
+    assert_eq!(first.code, 0, "{} {}", first.stdout, first.stderr);
+    let v: Value = serde_json::from_str(&first.stdout).expect("json");
+    assert!(v["pushed"].as_u64().unwrap_or(0) >= 1, "{v}");
+    assert!(config.exists());
+
+    let b_config = b.path.with_extension("sync.json");
+    let second = sync_cmd(
+        &b,
+        &b_config,
+        &[
+            "sync",
+            "--json",
+            "--server",
+            &url,
+            "--token",
+            "secret-token",
+        ],
+    );
+    assert_eq!(second.code, 0, "{} {}", second.stdout, second.stderr);
+    let terms = b.json(&["term", "list"]);
+    assert_eq!(terms["terms"][0]["name"], "Fall");
+
+    // A later plain sync on A uses the saved config and prints the human summary.
+    let again = sync_cmd(&a, &config, &["sync"]);
+    assert_eq!(again.code, 0, "{} {}", again.stdout, again.stderr);
+    assert!(
+        again.stdout.starts_with("Synced: pushed 0"),
+        "{}",
+        again.stdout
+    );
+    let _ = std::fs::remove_file(&config);
 }

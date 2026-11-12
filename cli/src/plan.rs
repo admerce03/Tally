@@ -138,6 +138,21 @@ pub fn plan(gb: &Gradebook, top: Top) -> Result<Planned> {
             curve_mode: mode(a.no_curve),
             scenario_id: scenario_opt(gb, &a.scenario)?,
         }),
+        Top::Import(a) => {
+            let text = std::fs::read_to_string(&a.file)
+                .with_context(|| format!("could not read {}", a.file.display()))?;
+            let gradebook: Gradebook = serde_json::from_str(&text)
+                .with_context(|| format!("{} is not a valid gradebook export", a.file.display()))?;
+            Planned::plain(Command::ImportGradebook { gradebook })
+        }
+        Top::Export => Planned::plain(Command::ExportGradebook),
+        Top::Sync(_) => bail!("sync is not a core command (handled before planning)"),
+        Top::Resolve(r) => Planned::plain(Command::Resolve {
+            kind: r.kind,
+            reference: r.reference,
+            course: course_opt(gb, &r.course)?,
+            scenario: scenario_opt(gb, &r.scenario)?,
+        }),
         Top::Leverage(l) => Planned::plain(Command::Leverage {
             course_id: resolve_course(gb, &l.base.course)?,
             baseline: l.baseline,
@@ -160,6 +175,10 @@ fn plan_term(gb: &Gradebook, c: TermCmd) -> Result<Planned> {
         TermCmd::Rename { term, name } => Planned::plain(Command::RenameTerm {
             id: resolve_term(gb, &term)?,
             name,
+        }),
+        TermCmd::Year { term, year } => Planned::plain(Command::SetTermYear {
+            id: resolve_term(gb, &term)?,
+            year,
         }),
         TermCmd::Rm { term } => Planned::plain(Command::RemoveTerm {
             id: resolve_term(gb, &term)?,
@@ -186,8 +205,9 @@ fn plan_course(gb: &Gradebook, c: CourseCmd) -> Result<Planned> {
                 target,
             })
         }
-        CourseCmd::Show { course } => Planned::plain(Command::ShowCourse {
+        CourseCmd::Show { course, scenario } => Planned::plain(Command::ShowCourse {
             course_id: resolve_course(gb, &course)?,
+            scenario_id: scenario_opt(gb, &scenario)?,
         }),
         CourseCmd::Update {
             course,
@@ -247,7 +267,10 @@ fn plan_course(gb: &Gradebook, c: CourseCmd) -> Result<Planned> {
         CourseCmd::Cutoffs { course, pairs } => {
             let course_id = resolve_course(gb, &course)?;
             if pairs.is_empty() {
-                Planned::plain(Command::ShowCourse { course_id })
+                Planned::plain(Command::ShowCourse {
+                    course_id,
+                    scenario_id: None,
+                })
             } else {
                 Planned {
                     commands: cutoff_pairs(&pairs)?
@@ -542,4 +565,70 @@ fn plan_gpa(gb: &Gradebook, c: GpaCmd) -> Result<Planned> {
             }
         }
     })
+}
+
+/// Every core Command tag and the `grades` subcommand that plans it. The parity test below
+/// fails if a Command is added to core without a row here (and so, a CLI path).
+#[cfg(test)]
+const CLI_PATHS: &[(&str, &str)] = &[
+    ("add_term", "term add"),
+    ("rename_term", "term rename"),
+    ("set_term_year", "term year"),
+    ("remove_term", "term rm"),
+    ("add_course", "course add"),
+    ("update_course", "course update"),
+    ("remove_course", "course rm"),
+    ("add_category", "category add"),
+    ("update_category", "category update"),
+    ("remove_category", "category rm"),
+    ("add_assignment", "assignment add"),
+    ("update_assignment", "assignment update"),
+    ("remove_assignment", "assignment rm"),
+    ("set_course_curve", "course curve"),
+    ("set_cutoffs", "course cutoffs"),
+    ("set_cutoff", "course cutoffs"),
+    ("list_terms", "term list"),
+    ("show_course", "course show"),
+    ("course_grade", "course grade"),
+    ("impact", "impact"),
+    ("trends", "trends"),
+    ("leverage", "leverage"),
+    ("set_target", "course target"),
+    ("solve_target", "solve"),
+    ("create_scenario", "scenario create"),
+    ("rename_scenario", "scenario rename"),
+    ("delete_scenario", "scenario rm"),
+    ("add_override", "scenario override"),
+    ("remove_override", "scenario unoverride"),
+    ("list_scenarios", "scenario list"),
+    ("compare_scenarios", "scenario compare"),
+    ("term_gpa", "gpa term"),
+    ("cumulative_gpa", "gpa cumulative"),
+    ("set_gpa_scale", "gpa scale"),
+    ("set_gpa_scale_entry", "gpa scale"),
+    ("show_gpa_scale", "gpa scale"),
+    ("import_gradebook", "import"),
+    ("export_gradebook", "export"),
+    ("resolve", "resolve"),
+];
+
+#[cfg(test)]
+mod parity_tests {
+    use super::*;
+
+    #[test]
+    fn every_core_command_has_a_cli_path() {
+        for tag in Command::TAGS {
+            assert!(
+                CLI_PATHS.iter().any(|(t, _)| t == tag),
+                "core command '{tag}' has no CLI path in CLI_PATHS"
+            );
+        }
+        for (tag, path) in CLI_PATHS {
+            assert!(
+                Command::TAGS.contains(tag),
+                "CLI_PATHS lists unknown command '{tag}' ({path})"
+            );
+        }
+    }
 }
